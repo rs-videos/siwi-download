@@ -8,6 +8,8 @@ version = "0.1.0"
 
 [dependencies]
 anyhow = "1"
+chrono = "0.4"
+indicatif = "0.15"
 reqwest = {version = "0.11", default-features = false, features = ["rustls-tls", "json"]}
 serde = {version = "1", features = ["derive"]}
 tokio = {version = "1", features = ["full"]}

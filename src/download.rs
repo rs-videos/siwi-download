@@ -1,6 +1,6 @@
 use crate::error::AnyResult;
-use reqwest::header::HeaderMap;
-use reqwest::Url;
+use chrono::{DateTime, Utc};
+use reqwest::{header::HeaderMap, Url};
 use std::path::Path;
 #[derive(Debug)]
 pub struct DownloadOptions {
@@ -45,7 +45,7 @@ impl DownloadOptions {
     self.file_name.clone()
   }
 }
-
+#[derive(Debug)]
 pub struct DownloadReport {
   pub url: String,
   pub file_name: String,
@@ -53,8 +53,8 @@ pub struct DownloadReport {
   pub file_path: String,
   pub file_size: Option<u64>,
   pub range_from: Option<u64>,
-  pub download_start_at: Option<u64>,
-  pub download_end_at: Option<u64>,
+  pub download_start_at: Option<DateTime<Utc>>,
+  pub download_end_at: Option<DateTime<Utc>>,
 }
 
 impl DownloadReport {
@@ -70,19 +70,20 @@ impl DownloadReport {
       download_end_at: None,
     }
   }
-  
+
   pub fn set_file_size(&mut self, file_size: u64) {
     self.file_size = Some(file_size);
   }
-  
-  pub fn set_download_start_at(&mut self) {
-    self.download_start_at = Some(0);
+  pub fn set_range_from(&mut self, range_from: u64) {
+    self.range_from = Some(range_from);
   }
-  
-  pub fn set_download_end_at(&mut self) {
-    self.download_end_at = Some(0);
+  pub fn set_download_start_at(&mut self) {
+    self.download_start_at = Some(date());
   }
 
+  pub fn set_download_end_at(&mut self) {
+    self.download_end_at = Some(date());
+  }
 }
 
 pub enum DownloadStatus {
@@ -91,19 +92,19 @@ pub enum DownloadStatus {
   Error,
 }
 pub struct Download {
-  pub href: String,
+  pub url: String,
   pub storage_path: String,
 }
 
 impl Download {
-  pub fn new<S: Into<String>>(href: S, storage_path: S) -> Self {
+  pub fn new<S: Into<String>>(url: S, storage_path: S) -> Self {
     Self {
-      href: href.into(),
+      url: url.into(),
       storage_path: storage_path.into(),
     }
   }
   pub async fn download(&self, options: DownloadOptions) -> AnyResult<DownloadReport> {
-    let url = self.href.clone();
+    let url = self.url.clone();
     let storage_path = self.storage_path.clone();
     let mut file_name = get_file_name_from_url(url.as_str())?;
     if options.file_name.is_some() {
@@ -118,17 +119,17 @@ impl Download {
       file_path.clone(),
     );
     report.set_file_size(file_size);
+    report.set_range_from(file_size);
     report.set_download_start_at();
-
     // 处理 自定义 headers
 
+    // 处理是否覆盖原来的文件 断点下载
 
     // 处理进度条 一般生产上可以关闭
 
-
     // 真正下载
-
-    // 
+    report.set_download_end_at();
+    //
     Ok(report)
   }
 }
@@ -151,9 +152,12 @@ fn get_file_size(file_path: &str) -> AnyResult<u64> {
   let mut file_size: u64 = 0;
   let path = Path::new(file_path);
 
-  let mate = path.metadata()?;
-  if mate.is_file() {
+  if let Ok(mate) = path.metadata() {
     file_size = mate.len();
   }
   Ok(file_size)
+}
+
+fn date() -> DateTime<Utc> {
+  Utc::now()
 }
