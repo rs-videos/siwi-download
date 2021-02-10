@@ -1,13 +1,13 @@
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use siwi_download::{
-  download::{Download, DownloadOptions, DownloadReport},
+  download::{Download, DownloadOptions},
   error::AnyResult,
 };
 #[tokio::main]
 async fn main() -> AnyResult<()> {
   let url = "https://cdn.npm.taobao.org/dist/node/v14.15.4/node-v14.15.4.pkg";
   let mut storage_path = std::env::current_dir()?;
-  storage_path.push("storage1");
+  storage_path.push("storage");
   let storage_path = storage_path.to_str().unwrap();
   let mut options = DownloadOptions::default();
   let mut headers = HeaderMap::new();
@@ -16,7 +16,11 @@ async fn main() -> AnyResult<()> {
     .set_headers(headers)
     .set_file_name("hello_world1.pkg")
     .set_show_progress(true);
-  let report: DownloadReport = Download::new(url, storage_path).download(options).await?;
+  let report = Download::new(storage_path)
+    .auto_create_storage_path()
+    .await
+    .download(url, options)
+    .await?;
   println!("report {:#?}", report);
   Ok(())
 }

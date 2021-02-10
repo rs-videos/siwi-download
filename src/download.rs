@@ -137,19 +137,29 @@ pub enum DownloadStatus {
 }
 
 pub struct Download {
-  pub url: String,
   pub storage_path: String,
 }
 
 impl Download {
-  pub fn new<S: Into<String>>(url: S, storage_path: S) -> Self {
+  pub fn new<S: Into<String>>(storage_path: S) -> Self {
     Self {
-      url: url.into(),
       storage_path: storage_path.into(),
     }
   }
-  pub async fn download(&self, options: DownloadOptions) -> AnyResult<DownloadReport> {
-    let url = self.url.clone();
+  pub async fn auto_create_storage_path(&mut self) -> &mut Self {
+    match create_dir_all(&self.storage_path).await {
+      Ok(()) => println!("create storage_path {}", &self.storage_path),
+      Err(e) => eprint!("create storage_path err {:?}", e),
+    }
+    self
+  }
+
+  pub async fn download<S: Into<String>>(
+    &self,
+    url: S,
+    options: DownloadOptions,
+  ) -> AnyResult<DownloadReport> {
+    let url = url.into();
     let storage_path = self.storage_path.clone();
 
     let file_name = match options.maybe_file_name {
@@ -281,7 +291,7 @@ pub fn gen_file_name<S: Into<String>>(file_name: S) -> AnyResult<String> {
   Ok(new_file_name)
 }
 
-pub async fn create_dir_all(src: &str) -> AnyResult<()> {
-  fs::create_dir_all(src).await?;
+pub async fn create_dir_all<S: Into<String>>(src: S) -> AnyResult<()> {
+  fs::create_dir_all(src.into()).await?;
   Ok(())
 }
