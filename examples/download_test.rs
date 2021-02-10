@@ -1,14 +1,22 @@
-use siwi_download::{download::Download, error::AnyResult};
-use siwi_download::download::DownloadReport;
-use siwi_download::download::DownloadOptions;
+use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
+use siwi_download::{
+  download::{Download, DownloadOptions, DownloadReport},
+  error::AnyResult,
+};
 #[tokio::main]
-async fn main() ->AnyResult<()>{
+async fn main() -> AnyResult<()> {
   let url = "https://cdn.npm.taobao.org/dist/node/v14.15.4/node-v14.15.4.pkg";
-  let storage_path = "/Volumes/ssd/volumes/code/rs-videos/siwi-download/storage";
+  let mut storage_path = std::env::current_dir()?;
+  storage_path.push("storage");
+  let storage_path = storage_path.to_str().unwrap();
   let mut options = DownloadOptions::default();
-  options.set_file_name("hello_world.pkg");
-  let report:DownloadReport = Download::new(url, storage_path).download(options).await?;
-
+  let mut headers = HeaderMap::new();
+  headers.insert(USER_AGENT, HeaderValue::from_str("Mozilla/5.0 (Macintosh; Intel Mac OS X 11_2_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.150 Safari/537.36")?);
+  options
+    .set_headers(headers)
+    .set_file_name("hello_world1.pkg")
+    .set_show_progress(true);
+  let report: DownloadReport = Download::new(url, storage_path).download(options).await?;
   println!("report {:#?}", report);
   Ok(())
 }
