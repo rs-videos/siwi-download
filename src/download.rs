@@ -27,7 +27,6 @@ impl Default for DownloadOptions {
 
 impl DownloadOptions {
   pub fn new() -> Self {
-    pretty_env_logger::init();
     Self {
       maybe_file_name: None,
       maybe_proxy: None,
@@ -122,6 +121,7 @@ pub enum DownloadStatus {
   Append,
   Complete,
   Exists,
+  Error
 }
 
 pub struct Download {
@@ -229,12 +229,12 @@ impl Download {
 
     report.set_download_status(DownloadStatus::Complete);
     report.set_download_end_at();
-    //
+
     Ok(report)
   }
 }
 
-fn get_file_name_from_url<S: Into<String>>(url: S) -> AnyResult<String> {
+pub fn get_file_name_from_url<S: Into<String>>(url: S) -> AnyResult<String> {
   let parsed = Url::parse(url.into().as_str())?;
   let file_name = parsed
     .path_segments()
@@ -243,7 +243,7 @@ fn get_file_name_from_url<S: Into<String>>(url: S) -> AnyResult<String> {
   Ok(file_name.to_string())
 }
 
-fn get_file_size(file_path: &str) -> AnyResult<u64> {
+pub fn get_file_size(file_path: &str) -> AnyResult<u64> {
   let mut file_size: u64 = 0;
   let path = Path::new(file_path);
 
@@ -253,6 +253,18 @@ fn get_file_size(file_path: &str) -> AnyResult<u64> {
   Ok(file_size)
 }
 
-fn date() -> DateTime<Utc> {
+pub fn date() -> DateTime<Utc> {
   Utc::now()
+}
+
+pub fn gen_file_name<S: Into<String>>(file_name: S) -> AnyResult<String> {
+  let mut new_file_name = file_name.into();
+  let now = date().to_string();
+  new_file_name = format!("{}_{}", now, new_file_name);
+  Ok(new_file_name)
+}
+
+pub async fn create_dir_all(src: &str) -> AnyResult<()> {
+  fs::create_dir_all(src).await?;
+  Ok(())
 }
