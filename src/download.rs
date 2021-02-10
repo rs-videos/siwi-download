@@ -67,6 +67,7 @@ pub struct DownloadReport {
   pub download_status: Option<DownloadStatus>,
   pub headers: Option<HeaderMap>,
   pub head_status: Option<u16>,
+  pub time_used: Option<i64>,
 }
 
 impl DownloadReport {
@@ -80,9 +81,10 @@ impl DownloadReport {
       range_from: None,
       download_start_at: None,
       download_end_at: None,
-      download_status: Some(DownloadStatus::Create),
+      download_status: Some(DownloadStatus::Error),
       headers: None,
       head_status: None,
+      time_used: None,
     }
   }
 
@@ -114,6 +116,16 @@ impl DownloadReport {
     self.head_status = Some(head_status);
     self
   }
+  pub fn gen_time_used(&mut self) -> &mut Self {
+    let mut time_used: i64 = 0;
+    if let Some(end) = self.download_end_at {
+      if let Some(start) = self.download_start_at {
+        time_used = end.timestamp() - start.timestamp();
+      };
+    }
+    self.time_used = Some(time_used);
+    self
+  }
 }
 #[derive(Debug)]
 pub enum DownloadStatus {
@@ -121,7 +133,7 @@ pub enum DownloadStatus {
   Append,
   Complete,
   Exists,
-  Error
+  Error,
 }
 
 pub struct Download {
@@ -206,13 +218,6 @@ impl Download {
       );
     }
 
-    if file_size > 0 {
-      report.set_download_status(DownloadStatus::Append);
-      if options.show_progress {
-        pb.set_position(file_size);
-      }
-    }
-
     let mut resp = client.get(url.as_str()).send().await?;
     let mut dest = fs::OpenOptions::new()
       .create(true)
@@ -220,7 +225,17 @@ impl Download {
       .open(&file_path)
       .await?;
 
+    if file_size > 0 {
+      report.set_download_status(DownloadStatus::Append);
+      if options.show_progress {
+        pb.set_position(file_size);
+      }
+    } else {
+      report.set_download_status(DownloadStatus::Create);
+    }
+
     while let Some(chunk) = resp.chunk().await? {
+      report.set_download_status(DownloadStatus::Append);
       dest.write_all(&chunk).await?;
       if options.show_progress {
         pb.inc(chunk.len() as u64);
@@ -228,18 +243,20 @@ impl Download {
     }
 
     report.set_download_status(DownloadStatus::Complete);
-    report.set_download_end_at();
+    report.set_download_end_at().gen_time_used();
 
     Ok(report)
   }
 }
 
 pub fn get_file_name_from_url<S: Into<String>>(url: S) -> AnyResult<String> {
-  let parsed = Url::parse(url.into().as_str())?;
+  let url = url.into();
+  let parsed = Url::parse(url.as_str())?;
+  let random = gen_file_name(url.as_str())?;
   let file_name = parsed
     .path_segments()
     .and_then(std::iter::Iterator::last)
-    .unwrap_or("tmp_name_file");
+    .unwrap_or(&random);
   Ok(file_name.to_string())
 }
 

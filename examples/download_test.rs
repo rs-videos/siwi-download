@@ -7,7 +7,7 @@ use siwi_download::{
 async fn main() -> AnyResult<()> {
   let url = "https://cdn.npm.taobao.org/dist/node/v14.15.4/node-v14.15.4.pkg";
   let mut storage_path = std::env::current_dir()?;
-  storage_path.push("storage");
+  storage_path.push("storage1");
   let storage_path = storage_path.to_str().unwrap();
   let mut options = DownloadOptions::default();
   let mut headers = HeaderMap::new();
