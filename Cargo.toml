@@ -3,6 +3,9 @@ authors = ["Mankong Zhao <mankong.zhao@aax.com>"]
 edition = "2018"
 name = "siwi-download"
 version = "0.1.0"
+license = "MIT"
+description = "async download file"
+repository = "https://github.com/rs-videos/siwi-download.git"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
