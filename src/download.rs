@@ -58,6 +58,7 @@ impl DownloadOptions {
 pub struct DownloadReport {
   pub url: String,
   pub file_name: String,
+  pub origin_file_name: String,
   pub storage_path: String,
   pub file_path: String,
   pub file_size: Option<u64>,
@@ -67,14 +68,23 @@ pub struct DownloadReport {
   pub download_status: Option<DownloadStatus>,
   pub headers: Option<HeaderMap>,
   pub head_status: Option<u16>,
+  pub resp_status: Option<u16>,
   pub time_used: Option<i64>,
+  pub msg: Option<String>,
 }
 
 impl DownloadReport {
-  pub fn new<S: Into<String>>(url: S, file_name: S, storage_path: S, file_path: S) -> Self {
+  pub fn new<S: Into<String>>(
+    url: S,
+    file_name: S,
+    origin_file_name: S,
+    storage_path: S,
+    file_path: S,
+  ) -> Self {
     Self {
       url: url.into(),
       file_name: file_name.into(),
+      origin_file_name: origin_file_name.into(),
       storage_path: storage_path.into(),
       file_path: file_path.into(),
       file_size: None,
@@ -84,7 +94,9 @@ impl DownloadReport {
       download_status: Some(DownloadStatus::Error),
       headers: None,
       head_status: None,
+      resp_status: None,
       time_used: None,
+      msg: None,
     }
   }
 
@@ -114,6 +126,14 @@ impl DownloadReport {
   }
   pub fn set_head_status(&mut self, head_status: u16) -> &mut Self {
     self.head_status = Some(head_status);
+    self
+  }
+  pub fn set_resp_status(&mut self, resp_status: u16) -> &mut Self {
+    self.resp_status = Some(resp_status);
+    self
+  }
+  pub fn set_msg(&mut self, msg: String) -> &mut Self {
+    self.msg = Some(msg);
     self
   }
   pub fn gen_time_used(&mut self) -> &mut Self {
@@ -161,10 +181,10 @@ impl Download {
   ) -> AnyResult<DownloadReport> {
     let url = url.into();
     let storage_path = self.storage_path.clone();
-
+    let origin_file_name = get_file_name_from_url(url.as_str())?;
     let file_name = match options.maybe_file_name {
       Some(file_name) => file_name,
-      None => get_file_name_from_url(url.as_str())?,
+      None => origin_file_name.clone(),
     };
 
     let file_path = format!("{}/{}", storage_path.as_str(), file_name.as_str());
@@ -173,6 +193,7 @@ impl Download {
     let mut report = DownloadReport::new(
       url.as_str(),
       file_name.as_str(),
+      origin_file_name.as_str(),
       storage_path.as_str(),
       file_path.as_str(),
     );
@@ -229,6 +250,14 @@ impl Download {
     }
 
     let mut resp = client.get(url.as_str()).send().await?;
+    let status = resp.status().as_u16();
+    report.set_resp_status(status);
+    if status > 300 {
+      report.set_download_status(DownloadStatus::Error);
+      report.set_download_end_at();
+      report.set_msg("download resp status error".to_owned());
+      return Ok(report);
+    }
     let mut dest = fs::OpenOptions::new()
       .create(true)
       .append(true)
