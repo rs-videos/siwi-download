@@ -1,6 +1,8 @@
 # siwi-download
 
-- download file example
+> download file
+
+- 支持断点继续下载
 
 ```rust
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
@@ -21,14 +23,16 @@ async fn main() -> AnyResult<()> {
     .set_headers(headers)
     .set_file_name("hello_world1.pkg")
     .set_show_progress(true);
-  let report = Download::new(storage_path)
-    .auto_create_storage_path()
-    .await
-    .download(url, options)
+
+  let download = Download::new(storage_path);
+  download.auto_create_storage_path().await?;
+  
+  let report = download.download(url, options)
     .await?;
   println!("report {:#?}", report);
   Ok(())
 }
+
 
 ```
 
@@ -43,13 +47,16 @@ async fn main() -> AnyResult<()> {
   let args: Vec<String> = std::env::args().collect();
   let storage_path = std::env::current_dir()?;
   let storage_path = storage_path.to_str().unwrap_or("");
+
   if let Some(url) = args.get(1) {
     let mut options = DownloadOptions::default();
     options.set_show_progress(true);
-    let report = Download::new(storage_path).download(url, options).await?;
+    let download = Download::new(storage_path);
+    let report = download.download(url, options).await?;
     println!("{:?}", report);
   }
   Ok(())
 }
+
 
 ```

@@ -177,7 +177,7 @@ impl<'a> Download<'a> {
     Ok(())
   }
 
-  pub async fn download<S: AsRef<str>>(
+  pub async fn download<S: AsRef<str> + Clone + 'a>(
     self,
     url: S,
     options: DownloadOptions<'a>,
@@ -189,12 +189,13 @@ impl<'a> Download<'a> {
     };
 
     let file_path = format!("{}/{}", self.storage_path.as_ref(), file_name);
+
     let mut report = DownloadReport::new(
-      String::from(url.as_ref()),
-      file_name.into_owned(),
-      origin_file_name.into_owned(),
-      String::from(self.storage_path.as_ref()),
-      file_path.clone(),
+      Cow::Owned(url.as_ref().to_string()),
+      Cow::Owned(file_name.to_string()),
+      Cow::Owned(origin_file_name.to_string()),
+      Cow::Owned(self.storage_path.to_string()),
+      Cow::Owned(file_path.to_string()),
     );
 
     let file_path = Path::new(file_path.as_str());
