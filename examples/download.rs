@@ -16,10 +16,11 @@ async fn main() -> AnyResult<()> {
     .set_headers(headers)
     .set_file_name("hello_world1.pkg")
     .set_show_progress(true);
-  let report = Download::new(storage_path)
-    .auto_create_storage_path()
-    .await
-    .download(url, options)
+
+  let download = Download::new(storage_path);
+  download.auto_create_storage_path().await?;
+  
+  let report = download.download(url, options)
     .await?;
   println!("report {:#?}", report);
   Ok(())

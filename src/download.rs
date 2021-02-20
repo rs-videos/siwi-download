@@ -5,16 +5,16 @@ use reqwest::{
   header::{HeaderMap, HeaderValue, RANGE},
   Url,
 };
-use std::path::Path;
+use std::{borrow::Cow, path::Path};
 use tokio::{fs, io::AsyncWriteExt};
 #[derive(Debug)]
-pub struct DownloadOptions {
-  pub maybe_file_name: Option<String>,
-  pub maybe_proxy: Option<String>,
+pub struct DownloadOptions<'a> {
+  pub maybe_file_name: Option<Cow<'a, str>>,
+  pub maybe_proxy: Option<Cow<'a, str>>,
   pub maybe_headers: Option<HeaderMap>,
   pub show_progress: bool,
 }
-impl Default for DownloadOptions {
+impl<'a> Default for DownloadOptions<'a> {
   fn default() -> Self {
     Self {
       maybe_file_name: None,
@@ -25,7 +25,7 @@ impl Default for DownloadOptions {
   }
 }
 
-impl DownloadOptions {
+impl<'a> DownloadOptions<'a> {
   pub fn new() -> Self {
     Self {
       maybe_file_name: None,
@@ -34,33 +34,33 @@ impl DownloadOptions {
       show_progress: false,
     }
   }
-  pub fn set_proxy<S: Into<String>>(&mut self, proxy: S) -> &mut DownloadOptions {
+  pub fn set_proxy<S: Into<Cow<'a, str>>>(&mut self, proxy: S) -> &mut Self {
     self.maybe_proxy = Some(proxy.into());
     self
   }
-  pub fn set_headers(&mut self, headers: HeaderMap) -> &mut DownloadOptions {
+  pub fn set_headers(&mut self, headers: HeaderMap) -> &mut Self {
     self.maybe_headers = Some(headers);
     self
   }
-  pub fn set_show_progress(&mut self, show_progress: bool) -> &mut DownloadOptions {
+  pub fn set_show_progress(&mut self, show_progress: bool) -> &mut Self {
     self.show_progress = show_progress;
     self
   }
-  pub fn set_file_name<S: Into<String>>(&mut self, file_name: S) -> &mut DownloadOptions {
+  pub fn set_file_name<S: Into<Cow<'a, str>>>(&mut self, file_name: S) -> &mut Self {
     self.maybe_file_name = Some(file_name.into());
     self
   }
-  pub fn get_file_name(&self) -> &Option<String> {
+  pub fn get_file_name(&self) -> &Option<Cow<'a, str>> {
     &self.maybe_file_name
   }
 }
 #[derive(Debug)]
-pub struct DownloadReport {
-  pub url: String,
-  pub file_name: String,
-  pub origin_file_name: String,
-  pub storage_path: String,
-  pub file_path: String,
+pub struct DownloadReport<'a> {
+  pub url: Cow<'a, str>,
+  pub file_name: Cow<'a, str>,
+  pub origin_file_name: Cow<'a, str>,
+  pub storage_path: Cow<'a, str>,
+  pub file_path: Cow<'a, str>,
   pub file_size: Option<u64>,
   pub range_from: Option<u64>,
   pub download_start_at: Option<DateTime<Utc>>,
@@ -70,11 +70,11 @@ pub struct DownloadReport {
   pub head_status: Option<u16>,
   pub resp_status: Option<u16>,
   pub time_used: Option<i64>,
-  pub msg: Option<String>,
+  pub msg: Option<Cow<'a, str>>,
 }
 
-impl DownloadReport {
-  pub fn new<S: Into<String>>(
+impl<'a> DownloadReport<'a> {
+  pub fn new<S: Into<Cow<'a, str>>>(
     url: S,
     file_name: S,
     origin_file_name: S,
@@ -132,8 +132,8 @@ impl DownloadReport {
     self.resp_status = Some(resp_status);
     self
   }
-  pub fn set_msg(&mut self, msg: String) -> &mut Self {
-    self.msg = Some(msg);
+  pub fn set_msg<S: Into<Cow<'a, str>>>(&mut self, msg: S) -> &mut Self {
+    self.msg = Some(msg.into());
     self
   }
   pub fn gen_time_used(&mut self) -> &mut Self {
@@ -156,47 +156,48 @@ pub enum DownloadStatus {
   Error,
 }
 
-pub struct Download {
-  pub storage_path: String,
+pub struct Download<'a> {
+  pub storage_path: Cow<'a, str>,
 }
 
-impl Download {
-  pub fn new<S: Into<String>>(storage_path: S) -> Self {
+impl<'a> Download<'a> {
+  pub fn new<S: Into<Cow<'a, str>>>(storage_path: S) -> Self {
     Self {
       storage_path: storage_path.into(),
     }
   }
-  pub async fn auto_create_storage_path(&mut self) -> &mut Self {
-    match create_dir_all(&self.storage_path).await {
-      Ok(()) => println!("create storage_path {}", &self.storage_path),
-      Err(e) => eprint!("create storage_path err {:?}", e),
+
+  pub async fn auto_create_storage_path(&self)->AnyResult<()> {
+    if !is_dir(self.storage_path.as_ref())? {
+      match create_dir_all(self.storage_path.as_ref()).await {
+        Ok(()) => println!("create storage_path {}", &self.storage_path),
+        Err(e) => eprint!("create storage_path err {:?}", e),
+      }
     }
-    self
+    Ok(())
   }
 
-  pub async fn download<S: Into<String>>(
-    &self,
-    url: S,
-    options: DownloadOptions,
-  ) -> AnyResult<DownloadReport> {
-    let url = url.into();
-    let storage_path = self.storage_path.clone();
-    let origin_file_name = get_file_name_from_url(url.as_str())?;
+  pub async fn download(
+    &'a self,
+    url: &'a str,
+    options: DownloadOptions<'a>,
+  ) -> AnyResult<DownloadReport<'a>> {
+    let origin_file_name = get_file_name_from_url(url)?;
     let file_name = match options.maybe_file_name {
       Some(file_name) => file_name,
       None => origin_file_name.clone(),
     };
 
-    let file_path = format!("{}/{}", storage_path.as_str(), file_name.as_str());
-    let file_size = get_file_size(file_path.as_str())?;
-
+    let file_path = format!("{}/{}", self.storage_path.as_ref(), file_name);
     let mut report = DownloadReport::new(
-      url.as_str(),
-      file_name.as_str(),
-      origin_file_name.as_str(),
-      storage_path.as_str(),
-      file_path.as_str(),
+      String::from(url),
+      file_name.into_owned(),
+      origin_file_name.into_owned(),
+      String::from(self.storage_path.as_ref()),
+      file_path.clone(),
     );
+    let file_path = Path::new(file_path.as_str());
+    let file_size = get_file_size(file_path)?;
 
     report
       .set_file_size(file_size)
@@ -215,7 +216,7 @@ impl Download {
     // client
     let client = match options.maybe_proxy {
       Some(proxy) => reqwest::Client::builder()
-        .proxy(reqwest::Proxy::all(proxy.as_str())?)
+        .proxy(reqwest::Proxy::all(proxy.as_ref())?)
         .default_headers(headers)
         .build()?,
       None => reqwest::Client::builder()
@@ -224,7 +225,7 @@ impl Download {
         .build()?,
     };
     // head 获取文件大小
-    let resp = client.head(url.as_str()).send().await?;
+    let resp = client.head(url).send().await?;
     let status = resp.status().as_u16();
     report.set_head_status(status);
     if status > 300 {
@@ -249,7 +250,7 @@ impl Download {
       );
     }
 
-    let mut resp = client.get(url.as_str()).send().await?;
+    let mut resp = client.get(url).send().await?;
     let status = resp.status().as_u16();
     report.set_resp_status(status);
     if status > 300 {
@@ -288,39 +289,53 @@ impl Download {
   }
 }
 
-pub fn get_file_name_from_url<S: Into<String>>(url: S) -> AnyResult<String> {
-  let url = url.into();
-  let parsed = Url::parse(url.as_str())?;
-  let random = gen_file_name(url.as_str())?;
-  let file_name = parsed
+pub fn get_file_name_from_url<'a, S: Into<Cow<'a, str>>>(url: S) -> AnyResult<Cow<'a, str>> {
+  let parse = Url::parse(url.into().as_ref())?;
+  let file_name = parse
     .path_segments()
     .and_then(std::iter::Iterator::last)
-    .unwrap_or(&random);
-  Ok(file_name.to_string())
-}
-
-pub fn get_file_size(file_path: &str) -> AnyResult<u64> {
-  let mut file_size: u64 = 0;
-  let path = Path::new(file_path);
-
-  if let Ok(mate) = path.metadata() {
-    file_size = mate.len();
-  }
-  Ok(file_size)
+    .unwrap_or("");
+  Ok(Cow::Owned(file_name.to_owned()))
 }
 
 pub fn date() -> DateTime<Utc> {
   Utc::now()
 }
 
-pub fn gen_file_name<S: Into<String>>(file_name: S) -> AnyResult<String> {
-  let mut new_file_name = file_name.into();
+pub fn gen_file_name<'a, S: Into<Cow<'a, str>>>(file_name: S) -> AnyResult<Cow<'a, str>> {
   let now = date().to_string();
-  new_file_name = format!("{}_{}", now, new_file_name);
-  Ok(new_file_name)
+  let new_file_name = format!("{}_{}", now, file_name.into());
+  Ok(Cow::Owned(new_file_name))
 }
 
-pub async fn create_dir_all<S: Into<String>>(src: S) -> AnyResult<()> {
-  fs::create_dir_all(src.into()).await?;
+pub async fn create_dir_all<S: AsRef<Path>>(src: S) -> AnyResult<()> {
+  fs::create_dir_all(src.as_ref()).await?;
   Ok(())
+}
+
+pub fn is_file<'a, S: AsRef<Path>>(dest: S) -> AnyResult<bool> {
+  let mut result: bool = false;
+  let maybe_file = Path::new(dest.as_ref());
+  if let Ok(metadata) = maybe_file.metadata() {
+    result = metadata.is_file();
+  }
+  Ok(result)
+}
+
+pub fn is_dir<'a, S: AsRef<Path>>(dest: S) -> AnyResult<bool> {
+  let mut result: bool = false;
+  let maybe_file = Path::new(dest.as_ref());
+  if let Ok(metadata) = maybe_file.metadata() {
+    result = metadata.is_dir();
+  }
+  Ok(result)
+}
+
+pub fn get_file_size<'a, S: AsRef<Path>>(dest: S) -> AnyResult<u64> {
+  let mut result: u64 = 0;
+  let maybe_file = Path::new(dest.as_ref());
+  if let Ok(metadata) = maybe_file.metadata() {
+    result = metadata.len();
+  }
+  Ok(result)
 }
