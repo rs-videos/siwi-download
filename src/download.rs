@@ -34,7 +34,10 @@ impl<'a> DownloadOptions<'a> {
       show_progress: false,
     }
   }
-  pub fn set_proxy<S: Into<Cow<'a, str>>>(&mut self, proxy: S) -> &mut Self {
+  pub fn set_proxy<S>(&mut self, proxy: S) -> &mut Self
+  where
+    S: Into<Cow<'a, str>>,
+  {
     self.maybe_proxy = Some(proxy.into());
     self
   }
@@ -49,9 +52,6 @@ impl<'a> DownloadOptions<'a> {
   pub fn set_file_name<S: Into<Cow<'a, str>>>(&mut self, file_name: S) -> &mut Self {
     self.maybe_file_name = Some(file_name.into());
     self
-  }
-  pub fn get_file_name(&self) -> &Option<Cow<'a, str>> {
-    &self.maybe_file_name
   }
 }
 #[derive(Debug)]
@@ -167,7 +167,7 @@ impl<'a> Download<'a> {
     }
   }
 
-  pub async fn auto_create_storage_path(&self)->AnyResult<()> {
+  pub async fn auto_create_storage_path(&self) -> AnyResult<()> {
     if !is_dir(self.storage_path.as_ref())? {
       match create_dir_all(self.storage_path.as_ref()).await {
         Ok(()) => println!("create storage_path {}", &self.storage_path),
