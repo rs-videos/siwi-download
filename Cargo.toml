@@ -6,7 +6,7 @@ version = "0.2.0"
 license = "MIT"
 description = "async download file"
 repository = "https://github.com/rs-videos/siwi-download.git"
-
+documentation = "https://docs.rs/siwi-download"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
