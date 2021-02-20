@@ -1,8 +1,41 @@
-# siwi-download
+<h1 align="center">Siwi Download</h1>
+<div align="center">
+ <strong>
+   Download file
+ </strong>
+</div>
 
-> download file
+<br />
 
-- 支持断点继续下载
+<div align="center">
+  <!-- Crates version -->
+  <a href="https://crates.io/crates/siwi-download">
+    <img src="https://img.shields.io/crates/v/siwi-download.svg?style=flat-square"
+    alt="Crates.io version" />
+  </a>
+  <!-- Downloads -->
+  <a href="https://crates.io/crates/siwi-download">
+    <img src="https://img.shields.io/crates/d/siwi-download.svg?style=flat-square"
+      alt="Download" />
+  </a>
+  <!-- docs.rs docs -->
+  <a href="https://docs.rs/siwi-download">
+    <img src="https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square"
+      alt="docs.rs docs" />
+  </a>
+</div>
+
+<div align="center">
+  <h3>
+    <a href="https://docs.rs/siwi-download">
+      API Docs
+    </a>
+  </h3>
+</div>
+
+Siwi Download is a downloader build on tokio and reqwest. 
+
+## Example
 
 ```rust
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
@@ -57,6 +90,5 @@ async fn main() -> AnyResult<()> {
   }
   Ok(())
 }
-
 
 ```
