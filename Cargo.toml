@@ -7,7 +7,21 @@ license = "MIT"
 description = "async download file"
 repository = "https://github.com/rs-videos/siwi-download.git"
 documentation = "https://docs.rs/siwi-download"
+categories = [
+  "download",
+  "async download",
+  "http range download"
+]
+readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[package.metadata.docs.rs]
+features = ["docs"]
+rustdoc-args = ["--cfg", "feature=\"docs\""]
+
+[features]
+docs = ["unstable"]
+unstable = []
 
 [dependencies]
 anyhow = "1"
