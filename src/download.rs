@@ -177,12 +177,12 @@ impl<'a> Download<'a> {
     Ok(())
   }
 
-  pub async fn download(
-    &'a self,
-    url: &'a str,
+  pub async fn download<S: AsRef<str>>(
+    self,
+    url: S,
     options: DownloadOptions<'a>,
   ) -> AnyResult<DownloadReport<'a>> {
-    let origin_file_name = get_file_name_from_url(url)?;
+    let origin_file_name = get_file_name_from_url(url.as_ref())?;
     let file_name = match options.maybe_file_name {
       Some(file_name) => file_name,
       None => origin_file_name.clone(),
@@ -190,12 +190,13 @@ impl<'a> Download<'a> {
 
     let file_path = format!("{}/{}", self.storage_path.as_ref(), file_name);
     let mut report = DownloadReport::new(
-      String::from(url),
+      String::from(url.as_ref()),
       file_name.into_owned(),
       origin_file_name.into_owned(),
       String::from(self.storage_path.as_ref()),
       file_path.clone(),
     );
+
     let file_path = Path::new(file_path.as_str());
     let file_size = get_file_size(file_path)?;
 
@@ -225,7 +226,7 @@ impl<'a> Download<'a> {
         .build()?,
     };
     // head 获取文件大小
-    let resp = client.head(url).send().await?;
+    let resp = client.head(url.as_ref()).send().await?;
     let status = resp.status().as_u16();
     report.set_head_status(status);
     if status > 300 {
@@ -250,7 +251,7 @@ impl<'a> Download<'a> {
       );
     }
 
-    let mut resp = client.get(url).send().await?;
+    let mut resp = client.get(url.as_ref()).send().await?;
     let status = resp.status().as_u16();
     report.set_resp_status(status);
     if status > 300 {
@@ -289,8 +290,8 @@ impl<'a> Download<'a> {
   }
 }
 
-pub fn get_file_name_from_url<'a, S: Into<Cow<'a, str>>>(url: S) -> AnyResult<Cow<'a, str>> {
-  let parse = Url::parse(url.into().as_ref())?;
+pub fn get_file_name_from_url<'a, S: AsRef<str>>(url: S) -> AnyResult<Cow<'a, str>> {
+  let parse = Url::parse(url.as_ref())?;
   let file_name = parse
     .path_segments()
     .and_then(std::iter::Iterator::last)
