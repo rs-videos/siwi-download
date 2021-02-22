@@ -7,6 +7,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::header::{HeaderMap, HeaderValue, RANGE};
 use std::{borrow::Cow, path::Path};
 use tokio::{fs, io::AsyncWriteExt};
+
 #[derive(Debug)]
 pub struct DownloadOptions<'a> {
   pub maybe_file_name: Option<Cow<'a, str>>,
@@ -146,7 +147,18 @@ impl<'a> DownloadReport<'a> {
     self.time_used = Some(time_used);
     self
   }
+
+  pub async fn report(&self, url: &str, headers: HeaderMap) -> AnyResult<Cow<'a, str>> {
+    let client = reqwest::Client::builder()
+      .no_proxy()
+      .default_headers(headers)
+      .build()?;
+    let res = client.post(url).send().await?.text().await?;
+
+    Ok(Cow::Owned(res.to_string()))
+  }
 }
+
 #[derive(Debug)]
 pub enum DownloadStatus {
   Create,
