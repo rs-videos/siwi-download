@@ -13,6 +13,11 @@
     <img src="https://img.shields.io/crates/v/siwi-download.svg?style=flat-square"
     alt="Crates.io version" />
   </a>
+  <!-- License -->
+  <a href="https://crates.io/crates/siwi-download">
+    <img src="https://img.shields.io/crates/l/siwi-download"
+      alt="License" />
+  </a>
   <!-- Downloads -->
   <a href="https://crates.io/crates/siwi-download">
     <img src="https://img.shields.io/crates/d/siwi-download.svg?style=flat-square"
@@ -22,6 +27,11 @@
   <a href="https://docs.rs/siwi-download">
     <img src="https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square"
       alt="docs.rs docs" />
+  </a>
+  <!-- Ci -->
+  <a href="https://github.com/rs-videos/siwi-download/actions">
+    <img src="https://github.com/rs-videos/siwi-download/workflows/Rust/badge.svg"
+      alt="github actions" />
   </a>
 </div>
 
