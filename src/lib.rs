@@ -31,7 +31,7 @@ mod tests {
     let file_path = std::env::current_dir()?;
     let file_path = format!("{}/src/lib.rs", file_path.to_str().unwrap());
     let file_name = get_file_size(file_path.as_str())?;
-    assert_eq!(1032, file_name);
+    assert_eq!(1037, file_name);
     Ok(())
   }
 }
