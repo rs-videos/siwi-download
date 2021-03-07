@@ -242,10 +242,17 @@ impl<'a> Download<'a> {
     let resp = client.head(url.as_ref()).send().await?;
     let status = resp.status().as_u16();
     report.set_head_status(status);
+
     if status > 300 {
-      report.set_download_status(DownloadStatus::Exists);
-      report.set_download_end_at();
-      return Ok(report);
+      if status == 416 {
+        report.set_download_status(DownloadStatus::Exists);
+        report.set_download_end_at();
+        return Ok(report);
+      } else {
+        report.set_download_status(DownloadStatus::Error);
+        report.set_download_end_at();
+        return Ok(report);
+      }
     }
 
     let content_length = match resp.content_length() {
