@@ -4,10 +4,12 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use indicatif::{ProgressBar, ProgressStyle};
+use log::info;
 use reqwest::header::{HeaderMap, HeaderValue, RANGE};
 use std::{borrow::Cow, path::Path};
+use tokio::time::sleep;
+use tokio::time::Duration;
 use tokio::{fs, io::AsyncWriteExt};
-
 #[derive(Debug)]
 pub struct DownloadOptions<'a> {
   pub maybe_file_name: Option<Cow<'a, str>>,
@@ -239,8 +241,25 @@ impl<'a> Download<'a> {
         .build()?,
     };
     // head 获取文件大小
-    let resp = client.head(url.as_ref()).send().await?;
-    let status = resp.status().as_u16();
+    let try_times_limit: u16 = 5;
+    let mut this_time: u16 = 0;
+
+    let mut resp = client.head(url.as_ref()).send().await?;
+    let mut status = resp.status().as_u16();
+    if status != 206 || status != 416 {
+      info!("head status is {} start loop", status);
+      while this_time < try_times_limit {
+        resp = client.head(url.as_ref()).send().await?;
+        status = resp.status().as_u16();
+        info!("try {} time head status is {}", this_time, status);
+        if status != 206 || status != 416 {
+          break;
+        }
+        this_time += 1;
+        sleep(Duration::from_secs(3)).await;
+      }
+    }
+
     report.set_head_status(status);
 
     if status > 300 {
@@ -274,12 +293,21 @@ impl<'a> Download<'a> {
     let mut resp = client.get(url.as_ref()).send().await?;
     let status = resp.status().as_u16();
     report.set_resp_status(status);
+
     if status > 300 {
-      report.set_download_status(DownloadStatus::Error);
-      report.set_download_end_at();
-      report.set_msg("download resp status error".to_owned());
-      return Ok(report);
+      if status == 416 {
+        report.set_download_status(DownloadStatus::Exists);
+        report.set_download_end_at();
+        report.set_msg("file exists".to_owned());
+        return Ok(report);
+      } else {
+        report.set_download_status(DownloadStatus::Error);
+        report.set_download_end_at();
+        report.set_msg("download resp status error".to_owned());
+        return Ok(report);
+      }
     }
+
     let mut dest = fs::OpenOptions::new()
       .create(true)
       .append(true)
