@@ -1,8 +1,8 @@
 [package]
 authors = ["Mankong Zhao <mankong.zhao@aax.com>"]
 categories = [
-  "download",
-  "downloader",
+  "filesystem",
+  "command-line-interface"
 ]
 description = "async download file"
 documentation = "https://docs.rs/siwi-download"
