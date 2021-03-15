@@ -7,9 +7,11 @@ use indicatif::{ProgressBar, ProgressStyle};
 use log::info;
 use reqwest::header::{HeaderMap, HeaderValue, RANGE};
 use std::{borrow::Cow, path::Path};
-use tokio::time::sleep;
-use tokio::time::Duration;
-use tokio::{fs, io::AsyncWriteExt};
+use tokio::{
+  fs,
+  io::AsyncWriteExt,
+  time::{sleep, Duration},
+};
 #[derive(Debug)]
 pub struct DownloadOptions<'a> {
   pub maybe_file_name: Option<Cow<'a, str>>,
@@ -247,17 +249,16 @@ impl<'a> Download<'a> {
     let mut resp = client.head(url.as_ref()).send().await?;
     let mut status = resp.status().as_u16();
     if status != 206 || status != 416 {
-      info!("head status is {} start loop", status);
-      while this_time < try_times_limit {
+      resp = loop {
         resp = client.head(url.as_ref()).send().await?;
         status = resp.status().as_u16();
         info!("try {} time head status is {}", this_time, status);
-        if status != 206 || status != 416 {
-          break;
+        if status != 206 || status != 416 || this_time > try_times_limit {
+          break resp;
         }
         this_time += 1;
         sleep(Duration::from_secs(3)).await;
-      }
+      };
     }
 
     report.set_head_status(status);
