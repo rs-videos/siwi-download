@@ -1,17 +1,15 @@
 [package]
-authors = ["Mankong Zhao <mankong.zhao@aax.com>"]
-categories = [
-  "filesystem",
-  "command-line-interface"
-]
+authors = ["Mankong <mankong@mankong.me>"]
+categories = ["filesystem", "command-line-interface"]
+keywords = ["siwi-download", "download", "siwi"]
 description = "async download file"
 documentation = "https://docs.rs/siwi-download"
-edition = "2018"
+edition = "2021"
 license = "MIT"
 name = "siwi-download"
 readme = "README.md"
 repository = "https://github.com/rs-videos/siwi-download.git"
-version = "0.2.3"
+version = "0.2.4"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [package.metadata.docs.rs]
@@ -25,7 +23,10 @@ unstable = []
 [dependencies]
 anyhow = "1"
 chrono = "0.4"
-indicatif = "0.15"
-log = "0.4"
-reqwest = {version = "0.11", default-features = false, features = ["rustls-tls", "json"]}
-tokio = {version = "1", features = ["fs", "macros", "rt-multi-thread"]}
+indicatif = "0.17.7"
+log = "0.4.20"
+reqwest = { version = "0.11", default-features = false, features = [
+  "rustls-tls",
+  "json",
+] }
+tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread"] }

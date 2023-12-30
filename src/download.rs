@@ -286,7 +286,7 @@ impl<'a> Download<'a> {
     if options.show_progress {
       pb.set_style(
         ProgressStyle::default_bar()
-          .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")
+          .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")?
           .progress_chars("#>-"),
       );
     }
