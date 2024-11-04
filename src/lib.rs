@@ -14,16 +14,16 @@ mod tests {
   }
   #[test]
   fn do_get_file_name_from_url() -> AnyResult<()> {
-    let url = "https://cdn.npm.taobao.org/dist/node/v14.15.4/node-v14.15.4.pkg";
+    let url = "https://nodejs.org/dist/v22.11.0/node-v22.11.0.pkg";
     let file_name = get_file_name_from_url(url)?;
-    assert_eq!("node-v14.15.4.pkg".to_owned(), file_name);
+    assert_eq!("node-v22.11.0.pkg".to_owned(), file_name);
     Ok(())
   }
   #[test]
   fn do_gen_file_name() -> AnyResult<()> {
-    let url = "https://cdn.npm.taobao.org/dist/node/v14.15.4/node-v14.15.4.pkg";
+    let url = "https://nodejs.org/dist/v22.11.0/node-v22.11.0.pkg";
     let file_name = gen_file_name(url)?;
-    assert_ne!("node-v14.15.4.pkg".to_owned(), file_name);
+    assert_ne!("node-v22.11.0.pkg".to_owned(), file_name);
     Ok(())
   }
   #[test]
