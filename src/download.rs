@@ -3,15 +3,19 @@ use crate::{
   utils::{create_dir_all, date, get_file_name_from_url, get_file_size, is_dir},
 };
 use chrono::{DateTime, Utc};
-use indicatif::{ProgressBar, ProgressStyle};
-use log::info;
+use indicatif::{ProgressBar, ProgressState, ProgressStyle};
+use reqwest::header::CONTENT_LENGTH;
+
 use reqwest::header::{HeaderMap, HeaderValue, RANGE};
+use std::fmt::Write;
 use std::{borrow::Cow, path::Path};
 use tokio::{
   fs,
   io::AsyncWriteExt,
   time::{sleep, Duration},
 };
+use tracing::{error, info};
+
 #[derive(Debug)]
 pub struct DownloadOptions<'a> {
   pub maybe_file_name: Option<Cow<'a, str>>,
@@ -186,8 +190,8 @@ impl<'a> Download<'a> {
   pub async fn auto_create_storage_path(&self) -> AnyResult<()> {
     if !is_dir(self.storage_path.as_ref())? {
       match create_dir_all(self.storage_path.as_ref()).await {
-        Ok(()) => println!("create storage_path {}", &self.storage_path),
-        Err(e) => eprint!("create storage_path err {:?}", e),
+        Ok(()) => info!("create storage_path {}", &self.storage_path),
+        Err(e) => error!("create storage_path err {:?}", e),
       }
     }
     Ok(())
@@ -242,7 +246,7 @@ impl<'a> Download<'a> {
         .default_headers(headers)
         .build()?,
     };
-    // head 获取文件大小
+    // head get file size
     let try_times_limit: u16 = 5;
     let mut this_time: u16 = 0;
 
@@ -275,20 +279,24 @@ impl<'a> Download<'a> {
       }
     }
 
-    let content_length = match resp.content_length() {
-      Some(len) => len,
-      None => 0,
-    };
+    let mut content_length = 0;
+    if let Some(hv) = resp.headers().get(CONTENT_LENGTH) {
+      if let Ok(l) = hv.to_str() {
+        info!("Content-Length: {}", l);
+        if let Ok(l) = l.parse::<u64>() {
+          content_length = l;
+        }
+      }
+    }
 
     let total = file_size + content_length;
     report.set_file_size(total);
     let pb = ProgressBar::new(total);
     if options.show_progress {
-      pb.set_style(
-        ProgressStyle::default_bar()
-          .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})")?
-          .progress_chars("#>-"),
-      );
+      pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+      .unwrap()
+      .with_key("eta", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap())
+      .progress_chars("#>-"));
     }
 
     let mut resp = client.get(url.as_ref()).send().await?;
