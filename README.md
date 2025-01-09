@@ -45,6 +45,18 @@
 
 Siwi Download is a downloader build on tokio and reqwest.
 
+## Install
+
+```sh
+cargo install siwi-download
+```
+
+## Download file
+
+```sh
+siwi-download https://nodejs.org/dist/v22.11.0/node-v22.11.0.pkg
+```
+
 ## Example
 
 > cargo run --example download
