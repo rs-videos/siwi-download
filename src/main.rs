@@ -23,7 +23,8 @@ async fn main() -> AnyResult<()> {
     options.set_show_progress(true);
     let download = Download::new(storage_path);
     let report = download.download(url, options).await?;
-    info!("{:?}", report);
+    info!("{:#?}", report);
+    info!("report json {}", serde_json::to_string_pretty(&report)?);
   }
   Ok(())
 }

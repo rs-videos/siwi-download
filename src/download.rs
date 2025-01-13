@@ -7,6 +7,7 @@ use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 use reqwest::header::CONTENT_LENGTH;
 
 use reqwest::header::{HeaderMap, HeaderValue, RANGE};
+use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 use std::{borrow::Cow, path::Path};
 use tokio::{
@@ -63,7 +64,7 @@ impl<'a> DownloadOptions<'a> {
     self
   }
 }
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct DownloadReport<'a> {
   pub url: Cow<'a, str>,
   pub file_name: Cow<'a, str>,
@@ -75,6 +76,7 @@ pub struct DownloadReport<'a> {
   pub download_start_at: Option<DateTime<Utc>>,
   pub download_end_at: Option<DateTime<Utc>>,
   pub download_status: Option<DownloadStatus>,
+  #[serde(skip)]
   pub headers: Option<HeaderMap>,
   pub head_status: Option<u16>,
   pub resp_status: Option<u16>,
@@ -167,7 +169,7 @@ impl<'a> DownloadReport<'a> {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum DownloadStatus {
   Create,
   Append,
