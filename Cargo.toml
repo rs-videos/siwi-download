@@ -9,7 +9,7 @@ license = "MIT"
 name = "siwi-download"
 readme = "README.md"
 repository = "https://github.com/rs-videos/siwi-download.git"
-version = "0.4.1"
+version = "0.4.2"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [package.metadata.docs.rs]
@@ -21,9 +21,9 @@ docs = ["unstable"]
 unstable = []
 
 [dependencies]
-anyhow = "1.0.96"
-chrono = {version = "0.4.40", features = ["serde"]}
-indicatif = "0.17.11"
+anyhow = "^1"
+chrono = {version = "^0.4", features = ["serde"]}
+indicatif = "^0.18"
 reqwest = {version = "^0.12", default-features = false, features = [
   "rustls-tls",
   "json",
