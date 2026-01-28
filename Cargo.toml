@@ -10,6 +10,7 @@ license = "MIT"
 name = "siwi-download"
 readme = "README.md"
 repository = "https://github.com/rs-videos/siwi-download.git"
+homepage = "https://github.com/rs-videos/siwi-download"
 version = "1.0.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -26,7 +27,7 @@ anyhow = "^1.0.100"
 clap = { version = "^4.5.55", features = ["derive"] }
 chrono = { version = "^0.4.43", features = ["serde"] }
 indicatif = "^0.18.3"
-reqwest = { version = "^0.13.1", default-features = false, features = [
+reqwest = { version = "^0.13", default-features = false, features = [
   "rustls",
   "json",
 ] }

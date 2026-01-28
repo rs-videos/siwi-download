@@ -16,6 +16,7 @@ use reqwest::header::CONTENT_LENGTH;
 
 use reqwest::header::{HeaderMap, HeaderValue, RANGE};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::fmt::Write;
 use std::{borrow::Cow, path::Path};
 use tokio::{
@@ -23,7 +24,18 @@ use tokio::{
   io::AsyncWriteExt,
   time::{Duration, sleep},
 };
-use tracing::{error, info};
+use tracing::info;
+
+/// HTTP status code for successful partial content response.
+const HTTP_PARTIAL_CONTENT: u16 = 206;
+/// HTTP status code for range not satisfiable.
+const HTTP_RANGE_NOT_SATISFIABLE: u16 = 416;
+/// HTTP redirect threshold - codes >= 300 are redirects or errors.
+const HTTP_REDIRECT_THRESHOLD: u16 = 300;
+/// Maximum number of retry attempts for HEAD requests.
+const MAX_HEAD_REQUEST_RETRIES: u16 = 5;
+/// Delay in seconds between HEAD request retries.
+const HEAD_REQUEST_RETRY_DELAY_SECS: u64 = 3;
 
 /// Configuration options for a download operation.
 ///
@@ -279,12 +291,31 @@ impl<'a> DownloadReport<'a> {
   /// # Returns
   ///
   /// The server response body as a string.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the HTTP request fails or the server returns an error status.
   pub async fn report(&self, url: &str, headers: HeaderMap) -> AnyResult<Cow<'a, str>> {
     let client = reqwest::Client::builder()
       .no_proxy()
       .default_headers(headers)
       .build()?;
-    let res = client.post(url).send().await?.text().await?;
+    // Serialize self as JSON and send in request body
+    let report_json = json!({
+      "url": self.url.as_ref(),
+      "file_name": self.file_name.as_ref(),
+      "file_size": self.file_size,
+      "download_status": self.download_status,
+      "time_used": self.time_used,
+      "msg": self.msg.as_ref().map(|s| s.as_ref())
+    });
+    let res = client
+      .post(url)
+      .json(&report_json)
+      .send()
+      .await?
+      .text()
+      .await?;
 
     Ok(Cow::Owned(res.to_string()))
   }
@@ -357,18 +388,20 @@ impl<'a> Download<'a> {
   /// Ensures the storage directory exists.
   ///
   /// This method checks if the storage path exists as a directory,
-  /// and creates it if it doesn't. It silently handles errors during
-  /// creation, logging them but not returning as errors.
+  /// and creates it if it doesn't.
   ///
   /// # Returns
   ///
-  /// Always returns `Ok(())`, even if directory creation fails.
+  /// `Ok(())` if the directory exists or was created successfully.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the directory cannot be created due to permission
+  /// denied, disk full, or other I/O errors.
   pub async fn auto_create_storage_path(&self) -> AnyResult<()> {
     if !is_dir(self.storage_path.as_ref())? {
-      match create_dir_all(self.storage_path.as_ref()).await {
-        Ok(()) => info!("create storage_path {}", &self.storage_path),
-        Err(e) => error!("create storage_path err {:?}", e),
-      }
+      create_dir_all(self.storage_path.as_ref()).await?;
+      info!("create storage_path {}", &self.storage_path);
     }
     Ok(())
   }
@@ -428,7 +461,7 @@ impl<'a> Download<'a> {
       .set_range_from(file_size)
       .set_download_start_at();
 
-    // 处理 自定义 headers
+    // Handle custom headers
     let mut headers = match options.maybe_headers {
       Some(headers) => headers,
       None => HeaderMap::new(),
@@ -437,7 +470,7 @@ impl<'a> Download<'a> {
     let range = format!("bytes={}-", file_size);
     headers.insert(RANGE, HeaderValue::from_str(range.as_str())?);
     report.set_headers(headers.clone());
-    // client
+    // Build HTTP client with optional proxy
     let client = match options.maybe_proxy {
       Some(proxy) => reqwest::Client::builder()
         .proxy(reqwest::Proxy::all(proxy.as_ref())?)
@@ -448,29 +481,34 @@ impl<'a> Download<'a> {
         .default_headers(headers)
         .build()?,
     };
-    // head get file size
-    let try_times_limit: u16 = 5;
-    let mut this_time: u16 = 0;
-
+    // Send HEAD request to get file size
     let mut resp = client.head(url.as_ref()).send().await?;
     let mut status = resp.status().as_u16();
-    if status != 206 && status != 416 {
+
+    // HEAD request should return 200 OK, or 206/416 if server supports Range on HEAD
+    // Some servers return 206 or 416 even for HEAD requests with Range header
+    if status != HTTP_PARTIAL_CONTENT && status != HTTP_RANGE_NOT_SATISFIABLE && status != 200 {
+      let mut this_time: u16 = 0;
       resp = loop {
         resp = client.head(url.as_ref()).send().await?;
         status = resp.status().as_u16();
         info!("try {} time head status is {}", this_time, status);
-        if status == 206 || status == 416 || this_time > try_times_limit {
+        if status == HTTP_PARTIAL_CONTENT
+          || status == HTTP_RANGE_NOT_SATISFIABLE
+          || status >= MAX_HEAD_REQUEST_RETRIES
+        {
           break resp;
         }
         this_time += 1;
-        sleep(Duration::from_secs(3)).await;
+        sleep(Duration::from_secs(HEAD_REQUEST_RETRY_DELAY_SECS)).await;
       };
     }
 
     report.set_head_status(status);
 
-    if status > 300 {
-      if status == 416 {
+    // Check for redirect or error status (>= 300 includes 3xx redirects and 4xx/5xx errors)
+    if status >= HTTP_REDIRECT_THRESHOLD {
+      if status == HTTP_RANGE_NOT_SATISFIABLE {
         report.set_download_status(DownloadStatus::Exists);
         report.set_download_end_at();
         return Ok(report);
@@ -495,18 +533,26 @@ impl<'a> Download<'a> {
     report.set_file_size(total);
     let pb = ProgressBar::new(total);
     if options.show_progress {
-      pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-      .unwrap()
-      .with_key("eta", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap())
-      .progress_chars("#>-"));
+      pb.set_style(
+        ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+          .unwrap()
+          .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
+            let eta = state.eta().as_secs_f64();
+            if eta.is_finite() {
+              let _ = write!(w, "{:.1}s", eta);
+            }
+          })
+          .progress_chars("#>-"),
+      );
     }
 
     let mut resp = client.get(url.as_ref()).send().await?;
     let status = resp.status().as_u16();
     report.set_resp_status(status);
 
-    if status > 300 {
-      if status == 416 {
+    // Check for redirect or error status in download response
+    if status >= HTTP_REDIRECT_THRESHOLD {
+      if status == HTTP_RANGE_NOT_SATISFIABLE {
         report.set_download_status(DownloadStatus::Exists);
         report.set_download_end_at();
         report.set_msg("file exists".to_owned());
@@ -541,6 +587,9 @@ impl<'a> Download<'a> {
         pb.inc(chunk.len() as u64);
       }
     }
+
+    // Flush to ensure all data is written to disk
+    dest.flush().await?;
 
     report.set_download_status(DownloadStatus::Complete);
     report.set_download_end_at().gen_time_used();

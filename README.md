@@ -73,7 +73,7 @@ siwi-download -u <URL> [OPTIONS]
 | `--url` | `-u` | URL to download | Required |
 | `--output` | `-o` | Output directory | Current directory |
 | `--filename` | `-f` | Custom filename | Auto-extracted from URL |
-| `--progress` | `-P` | Show progress bar | `false` |
+| `--progress` | `-P` | Show progress bar | `true` |
 | `--proxy` | `-p` | HTTP proxy URL | None |
 | `--verbose` | `-v` | Verbose logging | `false` |
 | `--help` | `-h` | Show help | - |

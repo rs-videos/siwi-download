@@ -71,9 +71,11 @@ async fn main() -> AnyResult<()> {
   tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
   let mut options = DownloadOptions::default();
-  options
-    .set_show_progress(args.progress)
-    .set_file_name(args.filename.unwrap_or_default());
+  options.set_show_progress(args.progress);
+
+  if let Some(filename) = args.filename.filter(|s| !s.is_empty()) {
+    options.set_file_name(filename);
+  }
 
   if let Some(proxy) = args.proxy {
     options.set_proxy(proxy);
