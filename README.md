@@ -70,7 +70,7 @@ siwi-download -u <URL> [OPTIONS]
 
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
-| `--url` | `-u` | URL to download | Required |
+| `--url` | `-u` | URL to download (or pass URL directly) | Required |
 | `--output` | `-o` | Output directory | Current directory |
 | `--filename` | `-f` | Custom filename | Auto-extracted from URL |
 | `--progress` | `-P` | Show progress bar | `true` |
@@ -81,7 +81,12 @@ siwi-download -u <URL> [OPTIONS]
 
 ### Examples
 
-**Basic download:**
+**Basic download (simplified):**
+```sh
+siwi-download https://nodejs.org/dist/v22.11.0/node-v22.11.0.pkg
+```
+
+**Basic download (with flag):**
 ```sh
 siwi-download -u https://nodejs.org/dist/v22.11.0/node-v22.11.0.pkg
 ```
