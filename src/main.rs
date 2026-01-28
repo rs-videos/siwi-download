@@ -1,3 +1,25 @@
+//! siwi-download CLI
+//!
+//! A command-line interface for the siwi-download library.
+//!
+//! ## Usage
+//!
+//! ```sh
+//! # Download a file
+//! siwi-download -u https://example.com/file.zip
+//!
+//! # Download with progress bar to specific directory
+//! siwi-download -u https://example.com/file.zip -o ./downloads -P
+//!
+//! # Download with custom filename and proxy
+//! siwi-download -u https://example.com/file.zip -f myfile.zip -p http://proxy:8080
+//!
+//! # Verbose mode for debugging
+//! siwi-download -u https://example.com/file.zip -v
+//! ```
+//!
+//! For more information, run: `siwi-download --help`
+
 use clap::Parser;
 use siwi_download::download::Download;
 use siwi_download::download::DownloadOptions;
