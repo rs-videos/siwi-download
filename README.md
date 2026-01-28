@@ -1,11 +1,12 @@
 <h1 align="center">Siwi Download</h1>
 <div align="center">
- <strong>
-   Download file
- </strong>
+  <strong>
+    Download file
+  </strong>
 </div>
 
 <br />
+
 
 <div align="center">
   <!-- Crates version -->
@@ -52,6 +53,7 @@ Siwi Download is a downloader built on tokio and reqwest with breakpoint continu
 - 🔄 **Resume support** - Breakpoint continuation for interrupted downloads
 - 🌐 **Proxy support** - HTTP/HTTPS proxy support
 - 📁 **Custom paths** - Specify output directory and filename
+- 📄 **JSON output** - Machine-readable report output
 - 🔧 **Library API** - Use as a Rust library in your project
 
 ## Install
@@ -63,19 +65,21 @@ cargo install siwi-download
 ## CLI Usage
 
 ```sh
-siwi-download -u <URL> [OPTIONS]
+siwi-download <URL> [OPTIONS]
 ```
 
 ### Options
 
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
-| `--url` | `-u` | URL to download (or pass URL directly) | Required |
+| `<url>` | positional | URL to download (first argument) | Required |
+| `--url` | `-u` | URL to download (alternative) | - |
 | `--output` | `-o` | Output directory | Current directory |
 | `--filename` | `-f` | Custom filename | Auto-extracted from URL |
 | `--progress` | `-P` | Show progress bar | `true` |
 | `--proxy` | `-p` | HTTP proxy URL | None |
 | `--verbose` | `-v` | Verbose logging | `false` |
+| `--json` | `-j` | Output report in JSON format | `false` |
 | `--help` | `-h` | Show help | - |
 | `--version` | `-V` | Show version | - |
 
@@ -93,22 +97,43 @@ siwi-download -u https://nodejs.org/dist/v22.11.0/node-v22.11.0.pkg
 
 **Download to specific directory with progress:**
 ```sh
-siwi-download -u https://example.com/file.zip -o /tmp/downloads -P
+siwi-download https://example.com/file.zip -o /tmp/downloads -P
 ```
 
 **Download with custom filename:**
 ```sh
-siwi-download -u https://example.com/download -f my-custom-name.zip
+siwi-download https://example.com/download -f my-custom-name.zip
 ```
 
 **Download through proxy:**
 ```sh
-siwi-download -u https://large-file.iso -p http://127.0.0.1:7890 -P
+siwi-download https://large-file.iso -p http://127.0.0.1:7890 -P
 ```
 
 **Verbose mode for debugging:**
 ```sh
-siwi-download -u https://example.com/file.zip -v
+siwi-download https://example.com/file.zip -v
+```
+
+**JSON output for scripting:**
+```sh
+siwi-download https://example.com/file.zip -j
+```
+
+**Output Example (JSON format):**
+```json
+{
+  "url": "https://example.com/file.zip",
+  "file_name": "file.zip",
+  "origin_file_name": "file.zip",
+  "storage_path": "/downloads",
+  "file_path": "/downloads/file.zip",
+  "file_size": 1048576,
+  "download_status": "Complete",
+  "head_status": 200,
+  "resp_status": 206,
+  "time_used": 5
+}
 ```
 
 ## Library Usage

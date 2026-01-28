@@ -9,18 +9,22 @@
 //! siwi-download https://example.com/file.zip
 //!
 //! # Download with options
-//! siwi-download -u https://example.com/file.zip -o ./downloads -P
+//! siwi-download https://example.com/file.zip -o ./downloads -P
 //!
 //! # Download with custom filename and proxy
 //! siwi-download https://example.com/file.zip -f myfile.zip -p http://proxy:8080
 //!
 //! # Verbose mode for debugging
 //! siwi-download https://example.com/file.zip -v
+//!
+//! # JSON output for scripting
+//! siwi-download https://example.com/file.zip -j
 //! ```
 //!
 //! For more information, run: `siwi-download --help`
 
 use clap::{Arg, ArgAction, Command};
+use serde_json::to_string_pretty;
 use siwi_download::download::Download;
 use siwi_download::download::DownloadOptions;
 use siwi_download::error::AnyResult;
@@ -35,11 +39,9 @@ async fn main() -> AnyResult<()> {
     .about("Downloader with breakpoint continuation support")
     .arg(
       Arg::new("url")
-        .help("URL to download (positional or via -u/--url)")
-        .short('u')
-        .long("url")
-        .required(false)
-        .default_value(""),
+        .help("URL to download")
+        .index(1)
+        .required(false),
     )
     .arg(
       Arg::new("output")
@@ -78,11 +80,26 @@ async fn main() -> AnyResult<()> {
         .default_value("false")
         .action(ArgAction::SetTrue),
     )
+    .arg(
+      Arg::new("json")
+        .help("Output report in JSON format")
+        .short('j')
+        .long("json")
+        .default_value("false")
+        .action(ArgAction::SetTrue),
+    )
     .get_matches();
 
-  let url = matches.get_one::<String>("url").unwrap().clone();
+  // Get URL from positional argument
+  let url = if let Some(url) = matches.get_one::<String>("url") {
+    url.clone()
+  } else {
+    eprintln!("Error: URL is required. Provide URL as first argument or use -u <url>.");
+    std::process::exit(1);
+  };
+
   if url.is_empty() {
-    eprintln!("Error: URL is required. Use `-u <url>` or provide URL as first argument.");
+    eprintln!("Error: URL is required. Provide URL as first argument or use -u <url>.");
     std::process::exit(1);
   }
 
@@ -94,6 +111,7 @@ async fn main() -> AnyResult<()> {
   let progress = matches.get_flag("progress");
   let proxy = matches.get_one::<String>("proxy").cloned();
   let verbose = matches.get_flag("verbose");
+  let json_output = matches.get_flag("json");
 
   let log_level = if verbose { Level::DEBUG } else { Level::INFO };
 
@@ -114,7 +132,12 @@ async fn main() -> AnyResult<()> {
   let download = Download::new(&output);
   download.auto_create_storage_path().await?;
   let report = download.download(&url, options).await?;
-  println!("{:#?}", report);
+
+  if json_output {
+    println!("{}", to_string_pretty(&report)?);
+  } else {
+    println!("{:#?}", report);
+  }
 
   Ok(())
 }
