@@ -13,26 +13,16 @@ use std::{borrow::Cow, path::Path};
 use tokio::{
   fs,
   io::AsyncWriteExt,
-  time::{sleep, Duration},
+  time::{Duration, sleep},
 };
 use tracing::{error, info};
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct DownloadOptions<'a> {
   pub maybe_file_name: Option<Cow<'a, str>>,
   pub maybe_proxy: Option<Cow<'a, str>>,
   pub maybe_headers: Option<HeaderMap>,
   pub show_progress: bool,
-}
-impl<'a> Default for DownloadOptions<'a> {
-  fn default() -> Self {
-    Self {
-      maybe_file_name: None,
-      maybe_proxy: None,
-      maybe_headers: None,
-      show_progress: false,
-    }
-  }
 }
 
 impl<'a> DownloadOptions<'a> {
@@ -149,10 +139,10 @@ impl<'a> DownloadReport<'a> {
   }
   pub fn gen_time_used(&mut self) -> &mut Self {
     let mut time_used: i64 = 0;
-    if let Some(end) = self.download_end_at {
-      if let Some(start) = self.download_start_at {
-        time_used = end.timestamp() - start.timestamp();
-      };
+    if let Some(end) = self.download_end_at
+      && let Some(start) = self.download_start_at
+    {
+      time_used = end.timestamp() - start.timestamp();
     }
     self.time_used = Some(time_used);
     self
@@ -169,7 +159,7 @@ impl<'a> DownloadReport<'a> {
   }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum DownloadStatus {
   Create,
   Append,
@@ -254,12 +244,12 @@ impl<'a> Download<'a> {
 
     let mut resp = client.head(url.as_ref()).send().await?;
     let mut status = resp.status().as_u16();
-    if status != 206 || status != 416 {
+    if status != 206 && status != 416 {
       resp = loop {
         resp = client.head(url.as_ref()).send().await?;
         status = resp.status().as_u16();
         info!("try {} time head status is {}", this_time, status);
-        if status != 206 || status != 416 || this_time > try_times_limit {
+        if status == 206 || status == 416 || this_time > try_times_limit {
           break resp;
         }
         this_time += 1;
@@ -282,12 +272,12 @@ impl<'a> Download<'a> {
     }
 
     let mut content_length = 0;
-    if let Some(hv) = resp.headers().get(CONTENT_LENGTH) {
-      if let Ok(l) = hv.to_str() {
-        info!("Content-Length: {}", l);
-        if let Ok(l) = l.parse::<u64>() {
-          content_length = l;
-        }
+    if let Some(hv) = resp.headers().get(CONTENT_LENGTH)
+      && let Ok(l) = hv.to_str()
+    {
+      info!("Content-Length: {}", l);
+      if let Ok(l) = l.parse::<u64>() {
+        content_length = l;
       }
     }
 
@@ -346,5 +336,129 @@ impl<'a> Download<'a> {
     report.set_download_end_at().gen_time_used();
 
     Ok(report)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_download_options_default() {
+    let options = DownloadOptions::default();
+    assert!(options.maybe_file_name.is_none());
+    assert!(options.maybe_proxy.is_none());
+    assert!(options.maybe_headers.is_none());
+    assert!(!options.show_progress);
+  }
+
+  #[test]
+  fn test_download_options_new() {
+    let options = DownloadOptions::new();
+    assert!(options.maybe_file_name.is_none());
+    assert!(options.maybe_proxy.is_none());
+    assert!(options.maybe_headers.is_none());
+    assert!(!options.show_progress);
+  }
+
+  #[test]
+  fn test_download_options_builder_pattern() {
+    let mut options = DownloadOptions::new();
+    options
+      .set_file_name("test.txt")
+      .set_proxy("http://proxy.example.com")
+      .set_show_progress(true);
+
+    assert_eq!(Some(Cow::Borrowed("test.txt")), options.maybe_file_name);
+    assert_eq!(
+      Some(Cow::Borrowed("http://proxy.example.com")),
+      options.maybe_proxy
+    );
+    assert!(options.show_progress);
+  }
+
+  #[test]
+  fn test_download_status_variants() {
+    let _ = DownloadStatus::Create;
+    let _ = DownloadStatus::Append;
+    let _ = DownloadStatus::Complete;
+    let _ = DownloadStatus::Exists;
+    let _ = DownloadStatus::Error;
+  }
+
+  #[test]
+  fn test_download_report_new() {
+    let report = DownloadReport::new(
+      "https://example.com/file.txt",
+      "file.txt",
+      "origin.txt",
+      "/storage",
+      "/storage/file.txt",
+    );
+
+    assert_eq!(report.url, "https://example.com/file.txt");
+    assert_eq!(report.file_name, "file.txt");
+    assert_eq!(report.origin_file_name, "origin.txt");
+    assert_eq!(report.storage_path, "/storage");
+    assert_eq!(report.file_path, "/storage/file.txt");
+    assert!(report.file_size.is_none());
+    assert_eq!(report.download_status, Some(DownloadStatus::Error));
+  }
+
+  #[test]
+  fn test_download_report_builder_pattern() {
+    let mut report = DownloadReport::new(
+      "https://example.com/file.txt",
+      "file.txt",
+      "file.txt",
+      "/storage",
+      "/storage/file.txt",
+    );
+
+    report
+      .set_file_size(1024)
+      .set_range_from(512)
+      .set_download_status(DownloadStatus::Complete)
+      .set_head_status(200)
+      .set_resp_status(200)
+      .set_msg("success");
+
+    assert_eq!(Some(1024), report.file_size);
+    assert_eq!(Some(512), report.range_from);
+    assert_eq!(Some(DownloadStatus::Complete), report.download_status);
+    assert_eq!(Some(200), report.head_status);
+    assert_eq!(Some(200), report.resp_status);
+    assert_eq!(Some(Cow::Borrowed("success")), report.msg);
+  }
+
+  #[test]
+  fn test_download_new() {
+    let download = Download::new("/storage");
+    assert_eq!(download.storage_path, "/storage");
+  }
+
+  #[test]
+  fn test_download_new_with_string() {
+    let download = Download::new(String::from("/custom/path"));
+    assert_eq!(download.storage_path, "/custom/path");
+  }
+
+  #[test]
+  fn test_download_gen_time_used() {
+    let mut report = DownloadReport::new(
+      "https://example.com/file.txt",
+      "file.txt",
+      "file.txt",
+      "/storage",
+      "/storage/file.txt",
+    );
+
+    report
+      .set_download_start_at()
+      .set_download_end_at()
+      .gen_time_used();
+
+    // time_used should be 0 or positive (timestamps are very close)
+    assert!(report.time_used.unwrap() >= 0);
   }
 }

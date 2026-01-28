@@ -40,9 +40,8 @@ cargo clippy
 - Keep functions focused and under ~50 lines when possible
 
 ### Formatting (rustfmt.toml)
-- Edition: 2018
+- Edition: 2024
 - Tab spaces: 2
-- Merge imports: true
 
 ### Naming Conventions
 - **Snake case** for functions and variables: `get_file_name_from_url()`
@@ -116,6 +115,7 @@ impl<'a> DownloadOptions<'a> {
 - `tracing` / `tracing-subscriber` - logging
 - `chrono` - date/time with serde support
 - `indicatif` - progress bars
+- `clap` - CLI argument parsing (features: derive)
 - `serde` / `serde_json` - serialization
 
 ### File Structure
