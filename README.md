@@ -43,7 +43,16 @@
   </h3>
 </div>
 
-Siwi Download is a downloader build on tokio and reqwest.
+Siwi Download is a downloader built on tokio and reqwest with breakpoint continuation support.
+
+## Features
+
+- 🚀 **Async download** - Built on tokio for high performance
+- 📊 **Progress bar** - Visual download progress
+- 🔄 **Resume support** - Breakpoint continuation for interrupted downloads
+- 🌐 **Proxy support** - HTTP/HTTPS proxy support
+- 📁 **Custom paths** - Specify output directory and filename
+- 🔧 **Library API** - Use as a Rust library in your project
 
 ## Install
 
@@ -51,13 +60,53 @@ Siwi Download is a downloader build on tokio and reqwest.
 cargo install siwi-download
 ```
 
-## Download file
+## CLI Usage
 
 ```sh
-siwi-download https://nodejs.org/dist/v22.11.0/node-v22.11.0.pkg
+siwi-download -u <URL> [OPTIONS]
 ```
 
-## Example
+### Options
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--url` | `-u` | URL to download | Required |
+| `--output` | `-o` | Output directory | Current directory |
+| `--filename` | `-f` | Custom filename | Auto-extracted from URL |
+| `--progress` | `-P` | Show progress bar | `false` |
+| `--proxy` | `-p` | HTTP proxy URL | None |
+| `--verbose` | `-v` | Verbose logging | `false` |
+| `--help` | `-h` | Show help | - |
+| `--version` | `-V` | Show version | - |
+
+### Examples
+
+**Basic download:**
+```sh
+siwi-download -u https://nodejs.org/dist/v22.11.0/node-v22.11.0.pkg
+```
+
+**Download to specific directory with progress:**
+```sh
+siwi-download -u https://example.com/file.zip -o /tmp/downloads -P
+```
+
+**Download with custom filename:**
+```sh
+siwi-download -u https://example.com/download -f my-custom-name.zip
+```
+
+**Download through proxy:**
+```sh
+siwi-download -u https://large-file.iso -p http://127.0.0.1:7890 -P
+```
+
+**Verbose mode for debugging:**
+```sh
+siwi-download -u https://example.com/file.zip -v
+```
+
+## Library Usage
 
 > cargo run --example download
 
@@ -97,26 +146,4 @@ async fn main() -> AnyResult<()> {
 }
 ```
 
-- Write a CLI tool
-
-```rust
-use siwi_download::download::Download;
-use siwi_download::download::DownloadOptions;
-use siwi_download::error::AnyResult;
-#[tokio::main]
-async fn main() -> AnyResult<()> {
-  let args: Vec<String> = std::env::args().collect();
-  let storage_path = std::env::current_dir()?;
-  let storage_path = storage_path.to_str().unwrap_or("");
-
-  if let Some(url) = args.get(1) {
-    let mut options = DownloadOptions::default();
-    options.set_show_progress(true);
-    let download = Download::new(storage_path);
-    let report = download.download(url, options).await?;
-    println!("{:?}", report);
-  }
-  Ok(())
-}
-
-```
+See [examples/download.rs](examples/download.rs) for complete library examples.

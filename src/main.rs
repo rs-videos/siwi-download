@@ -1,30 +1,67 @@
-#[macro_use]
-extern crate tracing;
-
+use clap::Parser;
 use siwi_download::download::Download;
 use siwi_download::download::DownloadOptions;
 use siwi_download::error::AnyResult;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
+/// A simple file downloader with breakpoint continuation support
+#[derive(Parser, Debug)]
+#[command(name = "siwi-download")]
+#[command(author, version, about, long_about = None)]
+struct Args {
+  /// URL to download
+  #[arg(short, long)]
+  url: String,
+
+  /// Output directory for downloaded file (default: current directory)
+  #[arg(short, long, default_value = ".")]
+  output: String,
+
+  /// Custom filename for the downloaded file
+  #[arg(short, long)]
+  filename: Option<String>,
+
+  /// Show download progress bar
+  #[arg(short = 'P', long, default_value = "true")]
+  progress: bool,
+
+  /// HTTP proxy (e.g., http://127.0.0.1:7890)
+  #[arg(short, long)]
+  proxy: Option<String>,
+
+  /// Verbose output
+  #[arg(short, long, default_value = "false")]
+  verbose: bool,
+}
+
 #[tokio::main]
 async fn main() -> AnyResult<()> {
-  let subscriber = FmtSubscriber::builder()
-    .with_max_level(Level::INFO)
-    .finish();
+  let args = Args::parse();
+
+  let log_level = if args.verbose {
+    Level::DEBUG
+  } else {
+    Level::INFO
+  };
+
+  let subscriber = FmtSubscriber::builder().with_max_level(log_level).finish();
   tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-  let args: Vec<String> = std::env::args().collect();
-  let storage_path = std::env::current_dir()?;
-  let storage_path = storage_path.to_str().unwrap_or("");
+  let mut options = DownloadOptions::default();
+  options
+    .set_show_progress(args.progress)
+    .set_file_name(args.filename.unwrap_or_default());
 
-  if let Some(url) = args.get(1) {
-    let mut options = DownloadOptions::default();
-    options.set_show_progress(true);
-    let download = Download::new(storage_path);
-    let report = download.download(url, options).await?;
-    info!("{:#?}", report);
-    info!("report json {}", serde_json::to_string_pretty(&report)?);
+  if let Some(proxy) = args.proxy {
+    options.set_proxy(proxy);
   }
+
+  let download = Download::new(&args.output);
+  download.auto_create_storage_path().await?;
+
+  let report = download.download(&args.url, options).await?;
+  println!("{:#?}", report);
+
   Ok(())
 }
