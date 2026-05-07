@@ -5,13 +5,13 @@ categories = ["filesystem", "command-line-interface"]
 description = "Downloader with a pure http implementation support breakpoint continuations"
 documentation = "https://docs.rs/siwi-download"
 edition = "2024"
+homepage = "https://github.com/rs-videos/siwi-download"
 keywords = ["siwi-download", "download", "siwi", "downloader"]
 license = "MIT"
 name = "siwi-download"
 readme = "README.md"
 repository = "https://github.com/rs-videos/siwi-download.git"
-homepage = "https://github.com/rs-videos/siwi-download"
-version = "1.0.0"
+version = "1.0.1"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [package.metadata.docs.rs]
@@ -23,27 +23,27 @@ docs = ["unstable"]
 unstable = []
 
 [dependencies]
-anyhow = "^1.0.100"
-clap = { version = "^4.5.55", features = ["derive"] }
-chrono = { version = "^0.4.43", features = ["serde"] }
-indicatif = "^0.18.3"
-reqwest = { version = "^0.13", default-features = false, features = [
+anyhow = "^1.0"
+chrono = {version = "^0.4", features = ["serde"]}
+clap = {version = "^4.6", features = ["derive"]}
+indicatif = "^0.18"
+reqwest = {version = "^0.13", default-features = false, features = [
   "rustls",
   "json",
-] }
-serde = { version = "^1.0.228", features = ["derive"] }
-serde_json = "^1.0.149"
-tokio = { version = "^1.49.0", features = [
+]}
+serde = {version = "^1", features = ["derive"]}
+serde_json = "^1"
+tokio = {version = "^1", features = [
   "fs",
   "macros",
   "rt-multi-thread",
   "io-util",
-] }
+]}
 tracing = "^0.1.44"
-tracing-subscriber = "^0.3.22"
+tracing-subscriber = "^0.3.23"
 
 [dev-dependencies]
-tempfile = "^3.16"
+tempfile = "^3.27.0"
 
 [[example]]
 name = "cli"
