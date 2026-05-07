@@ -1,10 +1,6 @@
 [workspace]
 members = ["cargo:."]
 
-[profile.dist]
-inherits = "release"
-lto = "thin"
-
 [dist]
 cargo-dist-version = "0.31.0"
 ci = ["github"]
