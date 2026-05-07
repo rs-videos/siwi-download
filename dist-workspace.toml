@@ -4,7 +4,7 @@ members = ["cargo:."]
 [dist]
 cargo-dist-version = "0.31.0"
 ci = ["github"]
-installers = ["shell", "powershell", "homebrew"]
+installers = ["shell", "powershell"]
 targets = [
     "aarch64-apple-darwin",
     "x86_64-apple-darwin",
@@ -15,6 +15,3 @@ github-releases = "hosted"
 
 [installers.shell]
 install-path-hint = "~/.local/bin"
-
-[installers.homebrew]
-tap = "rs-videos/homebrew-tap"
