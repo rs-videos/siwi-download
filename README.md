@@ -29,10 +29,10 @@
     <img src="https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square"
       alt="docs.rs docs" />
   </a>
-  <!-- Ci -->
+  <!-- CI -->
   <a href="https://github.com/rs-videos/siwi-download/actions">
-    <img src="https://github.com/rs-videos/siwi-download/workflows/Rust/badge.svg"
-      alt="github actions" />
+    <img src="https://github.com/rs-videos/siwi-download/workflows/CI/badge.svg"
+      alt="CI status" />
   </a>
 </div>
 

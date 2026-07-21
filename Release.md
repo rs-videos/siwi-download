@@ -1,123 +1,159 @@
 # Release Process for siwi-download
 
-This document outlines the automated release process for siwi-download using cargo-dist.
+This document outlines how to cut a release of siwi-download. There are two
+parts that must both happen:
 
-## Overview
+1. **Publish the library to crates.io** — manual, run locally.
+2. **Build and publish binaries via cargo-dist** — automated, triggered by
+   pushing a version tag.
 
-cargo-dist automates the entire release workflow:
-- Cross-platform builds (macOS, Linux, Windows)
-- Shell and PowerShell installer generation
-- GitHub Releases creation
-- Checksum generation
+> The rest of this file is the source of truth for cutting a release. If
+> anything here disagrees with `release.yml`, the workflow wins.
 
 ## Prerequisites
 
-- GitHub CLI (`gh`) authenticated
-- Write access to `rs-videos/siwi-download` repository
-- Git remote properly configured
+- Push access to `rs-videos/siwi-download`
+- A crates.io account with an API token (`cargo login`)
+- Rust 1.85+ (the MSRV), stable toolchain
+- `cargo-dist` installed locally only if you want to preview the plan
+  (`cargo install cargo-dist --version 0.31.0`)
 
-## Release Steps
+## Pre-release Checklist
 
-### 1. Update Version
-
-Update the version in `Cargo.toml`:
-
-```toml
-[package]
-version = "X.Y.Z"
-```
-
-### 2. Commit and Tag
+Run **all** of these locally before tagging. CI runs the same gates, but
+catching failures here saves a tag-repush cycle.
 
 ```bash
-# Add and commit changes
-git add .
-git commit -m "Release vX.Y.Z"
+# 1. All quality gates green
+cargo fmt --all --check
+cargo clippy --all-targets -- -D warnings
+cargo test --all-targets
+cargo doc --no-deps            # must be warning-free
 
-# Create and push tag
-git tag vX.Y.Z
-git push origin main --tags
+# 2. Version is the one you intend to release
+grep '^version' Cargo.toml     # e.g. version = "2.0.0"
+
+# 3. CHANGELOG.md has the version section with a real date
+#    and [Unreleased] is empty
+
+# 4. Working tree clean, main and develop in sync with origin
+git status
+git fetch --all
+git log --oneline origin/main..main   # should be empty
+git log --oneline main..origin/main   # should be empty
+
+# 5. Dry-run the crates.io publish (catches missing metadata, etc.)
+cargo publish --dry-run --registry crates-io
 ```
 
-### 3. GitHub Actions Workflow
+## Step 1 — Publish to crates.io
 
-The release workflow (`.github/workflows/release.yml`) will automatically:
-
-1. **Build** - Compiles binaries for all platforms:
-   - macOS ARM64 (`aarch64-apple-darwin`)
-   - macOS Intel (`x86_64-apple-darwin`)
-   - Linux (`x86_64-unknown-linux-gnu`)
-   - Windows (`x86_64-pc-windows-msvc`)
-
-2. **Package** - Creates compressed archives with checksums:
-   - `.tar.xz` for Unix-like systems
-   - `.zip` for Windows
-
-3. **Generate Installers**:
-   - Shell installer (`siwi-download-installer.sh`) - Unix/Linux/macOS
-   - PowerShell installer (`siwi-download-installer.ps1`) - Windows
-
-4. **Publish** - Creates GitHub Release with all artifacts
-
-## Installation Methods
-
-After release, users can install using:
-
-### Shell (Linux/macOS)
+The library crate itself is published to crates.io. This is **not** done by
+cargo-dist — cargo-dist only produces GitHub Release binaries.
 
 ```bash
+# Login once if you haven't already
+cargo login
+
+# Publish (use --registry crates-io if your global config points at a mirror)
+cargo publish --registry crates-io
+```
+
+Verify at <https://crates.io/crates/siwi-download>.
+
+## Step 2 — Tag and Push (triggers cargo-dist)
+
+```bash
+# Tag must be v<version> matching Cargo.toml
+git tag v2.0.0
+git push origin v2.0.0
+```
+
+Pushing the tag triggers `.github/workflows/release.yml`, which will:
+
+1. Run `cargo-dist` to build binaries for all configured targets:
+   - `aarch64-apple-darwin` (macOS ARM)
+   - `x86_64-apple-darwin` (macOS Intel)
+   - `aarch64-unknown-linux-gnu` (Linux ARM)
+   - `x86_64-unknown-linux-gnu` (Linux x86_64)
+   - `x86_64-pc-windows-msvc` (Windows)
+2. Produce `.tar.xz` (Unix) / `.zip` (Windows) archives with checksums.
+3. Generate installers:
+   - `siwi-download-installer.sh` (shell, macOS/Linux)
+   - `siwi-download-installer.ps1` (PowerShell, Windows)
+4. Create the GitHub Release with auto-generated notes (derived from
+   `CHANGELOG.md`).
+
+Watch the run at
+<https://github.com/rs-videos/siwi-download/actions/workflows/release.yml>.
+Typical duration: 10–20 minutes.
+
+## Step 3 — Verify
+
+After the Release workflow succeeds:
+
+- [ ] GitHub Release exists: <https://github.com/rs-videos/siwi-download/releases>
+- [ ] All 5 platform archives are attached
+- [ ] Both installer scripts are attached
+- [ ] `CHANGELOG.md` notes were picked up as the release body
+- [ ] The install one-liners work:
+
+```bash
+# Shell
 curl -LsSf https://github.com/rs-videos/siwi-download/releases/latest/download/siwi-download-installer.sh | sh
-```
 
-### PowerShell (Windows)
-
-```powershell
+# PowerShell
 irm https://github.com/rs-videos/siwi-download/releases/latest/download/siwi-download-installer.ps1 | iex
 ```
 
-### Direct Download
+- [ ] `siwi-download --version` reports the new version
+- [ ] crates.io page shows the new version as "newest"
 
-Download pre-built binaries from the GitHub Releases page:
-- https://github.com/rs-videos/siwi-download/releases
+## Post-release Housekeeping
 
-## Local Testing
+- Update the `[Unreleased]` section in `CHANGELOG.md` back to the placeholder
+  if you moved entries out of it for this release.
+- If this was a major/minor release (not patch), consider publishing an
+  article in `docs/` or social posts.
 
-Test the build locally before pushing:
+## Local Testing (optional, before tagging)
+
+Preview what cargo-dist would build without creating a release:
 
 ```bash
-# Plan the release (preview what will be built)
+# Show what would be built
 dist plan
 
-# Build for current platform
+# Build for the current host only
 dist build
-
-# Build for specific target
-dist build --target aarch64-apple-darwin
 ```
+
+Requires `cargo install cargo-dist --version 0.31.0`.
 
 ## Troubleshooting
 
-### Build Failures
+### Tag pushed but no release
 
-1. Ensure Rust toolchain is up to date:
-   ```bash
-   rustup update
-   ```
+- Check the tag matches `**[0-9]+.[0-9]+.[0-9]+*` (e.g. `v2.0.0`).
+- Check the Release workflow's status page for failures.
+- A common cause: the version in `Cargo.toml` doesn't match the tag.
 
-2. Check for compilation errors:
-   ```bash
-   cargo build --release
-   ```
+### crates.io publish fails with "already exists"
 
-### Release Not Triggered
+You can't republish a version. Bump the patch and republish.
 
-Make sure the tag follows semver format:
-- Valid: `v1.0.0`, `v0.1.0-beta.1`, `v2.3.4`
-- Invalid: `v1`, `release-1.0`, `1.0.0`
+### Installer downloads 404
 
-### Installer Issues
+The installer filenames include the version. Make sure you're pointing at
+`releases/latest/download/...` and not a specific version, unless that's
+intended.
 
-If installers fail to generate:
-1. Check GitHub Actions logs
-2. Verify `dist-workspace.toml` configuration
-3. Ensure all targets are properly specified
+## What CI Does vs. What You Do
+
+| Step                              | Who/What              |
+|-----------------------------------|------------------------|
+| Run tests/lint/fmt                | `ci.yml` (every push)  |
+| Publish crate to crates.io        | **You** (manual)       |
+| Build cross-platform binaries     | `release.yml` (on tag) |
+| Create GitHub Release             | `release.yml` (on tag) |
+| Edit release notes                | Optional, you          |

@@ -10,61 +10,13 @@ and may be incomplete.
 
 ## [Unreleased]
 
-### Changed
-
-- Reorganized the `download` module from a single 781-line `download.rs`
-  into a module directory with focused files:
-  - `download/mod.rs` — `Download` type and the `download()` core
-  - `download/options.rs` — `DownloadOptions` and its builder
-  - `download/report.rs` — `DownloadReport` and `DownloadStatus`
-  - `download/client.rs` — extracted HTTP client construction helper
-- Extracted `build_client()` into `download::client`, deduplicating the
-  proxy/no-proxy client setup; timeouts now live in one place.
-- Extracted `build_progress_bar()` helper out of `Download::download` so the
-  progress-bar styling is testable and the download loop is shorter.
-
-### Added
-
-- Added a dedicated `ci.yml` workflow: `rustfmt`, `clippy -D warnings`,
-  and a test matrix of `{ubuntu, macos, windows} × {stable, 1.85 (MSRV)}`.
-- Declared `rust-version = "1.85"` (MSRV) and added `rust-toolchain.toml`
-  pinning the stable toolchain with `rustfmt`/`clippy` components.
-
-### Changed (dependencies)
-
-- Relaxed direct dependency constraints from pinned caret (e.g. `^4.6`) to
-  major-only (e.g. `4`) and refreshed `Cargo.lock` via `cargo update`,
-  pulling in newer patch/minor releases across the dependency tree.
-
-### Documentation
-
-- Rewrote `AGENTS.md` to match the 2.0 codebase: new module layout, the
-  drop of `Cow<'a, str>`, `clippy::pedantic` policy, MSRV (1.85), the
-  full `cargo fmt/clippy/test/doc` command set, and a PR-readiness
-  checklist.
-- Corrected `skills/SKILL.md`: `--progress` default is `false` (not `true`),
-  matching the actual CLI.
-- Updated `README.md`: JSON output example now reflects all `DownloadReport`
-  fields (`range_from`, timestamps, `msg`); added MSRV note, timeouts to the
-  feature list, and links to `CHANGELOG.md` / `AGENTS.md`.
-
-### Added
-
-- `LICENSE` file (MIT) — the MIT license was declared in `Cargo.toml` but
-  the text was missing from the repo.
-- `#[must_use]` on `Download::new`, `DownloadOptions::new`, and
-  `DownloadReport::new` so callers don't accidentally drop instances.
-- `docs/` article set (in Chinese) for community promotion:
-  - `docs/01-introduction.md` — project overview
-  - `docs/02-getting-started.md` — 5-minute quickstart (CLI + library)
-  - `docs/03-deep-dive.md` — source-level technical walkthrough
-  - `docs/README.md` — article index + publishing guide
+_No unreleased changes yet._
 
 ## [2.0.0] - 2026-07-21
 
-A maintenance and hardening release. The public API was simplified and several
-correctness bugs were fixed; **these changes are breaking** (hence the major
-bump).
+A maintenance and hardening release. The public API was simplified, the
+`download` module was reorganized, and several correctness bugs were fixed.
+**The API changes are breaking** (hence the major bump).
 
 ### Changed (breaking)
 
@@ -90,6 +42,22 @@ bump).
   in sync with `Cargo.toml`.
 - Enabled `clippy::pedantic` for the crate.
 
+### Changed
+
+- Reorganized the `download` module from a single 781-line `download.rs`
+  into a module directory with focused files:
+  - `download/mod.rs` — `Download` type and the `download()` core
+  - `download/options.rs` — `DownloadOptions` and its builder
+  - `download/report.rs` — `DownloadReport` and `DownloadStatus`
+  - `download/client.rs` — extracted HTTP client construction helper
+- Extracted `build_client()` into `download::client`, deduplicating the
+  proxy/no-proxy client setup; timeouts now live in one place.
+- Extracted `build_progress_bar()` helper out of `Download::download` so the
+  progress-bar styling is testable and the download loop is shorter.
+- Relaxed direct dependency constraints from pinned caret (e.g. `^4.6`) to
+  major-only (e.g. `4`) and refreshed `Cargo.lock` via `cargo update`,
+  pulling in newer patch/minor releases across the dependency tree.
+
 ### Added
 
 - HTTP client request timeout (60s) and connect timeout (10s) to avoid
@@ -100,6 +68,17 @@ bump).
 - `clippy.toml` with `msrv = "1.85"`.
 - `rust-toolchain.toml` pinning the stable channel with `rustfmt` and
   `clippy` components.
+- Dedicated `ci.yml` workflow: `rustfmt`, `clippy -D warnings`, and a test
+  matrix of `{ubuntu, macos, windows} × {stable, 1.85 (MSRV)}`.
+- `LICENSE` file (MIT) — the MIT license was declared in `Cargo.toml` but
+  the text was missing from the repo.
+- `#[must_use]` on `Download::new`, `DownloadOptions::new`, and
+  `DownloadReport::new` so callers don't accidentally drop instances.
+- `docs/` article set (in Chinese) for community promotion:
+  - `docs/01-introduction.md` — project overview
+  - `docs/02-getting-started.md` — 5-minute quickstart (CLI + library)
+  - `docs/03-deep-dive.md` — source-level technical walkthrough
+  - `docs/README.md` — article index + publishing guide
 
 ### Fixed
 
@@ -116,6 +95,20 @@ bump).
 - `DownloadReport::report` now serializes via the derived `Serialize` impl
   instead of hand-building a `json!({...})` object, so the wire format
   cannot drift away from the struct definition.
+- Running the CLI with no arguments now prints full `--help` instead of a
+  one-line "URL is required" error, matching the `git`/`cargo` convention.
+
+### Documentation
+
+- Rewrote `AGENTS.md` to match the 2.0 codebase: new module layout, the
+  drop of `Cow<'a, str>`, `clippy::pedantic` policy, MSRV (1.85), the
+  full `cargo fmt/clippy/test/doc` command set, and a PR-readiness
+  checklist.
+- Corrected `skills/SKILL.md`: `--progress` default is `false` (not `true`),
+  matching the actual CLI.
+- Updated `README.md`: JSON output example now reflects all `DownloadReport`
+  fields (`range_from`, timestamps, `msg`); added MSRV note, timeouts to the
+  feature list, and links to `CHANGELOG.md` / `AGENTS.md`.
 
 ## [1.0.1] - 2026-05-07
 
