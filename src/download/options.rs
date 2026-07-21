@@ -42,6 +42,7 @@ impl DownloadOptions {
   /// # Returns
   ///
   /// A new `DownloadOptions` instance with all fields set to `None` or `false`.
+  #[must_use]
   pub fn new() -> Self {
     Self {
       maybe_file_name: None,

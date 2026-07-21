@@ -115,6 +115,7 @@ impl Download {
   /// # Returns
   ///
   /// A new `Download` instance.
+  #[must_use]
   pub fn new<S: Into<String>>(storage_path: S) -> Self {
     Self {
       storage_path: storage_path.into(),

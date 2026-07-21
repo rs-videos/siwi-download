@@ -52,7 +52,7 @@ siwi-download <URL> [OPTIONS]
 | `--url` | `-u` | URL to download (alternative) | - |
 | `--output` | `-o` | Output directory | Current directory |
 | `--filename` | `-f` | Custom filename | Auto-extracted from URL |
-| `--progress` | `-P` | Show progress bar | `true` |
+| `--progress` | `-P` | Show progress bar | `false` |
 | `--proxy` | `-p` | HTTP proxy URL | None |
 | `--verbose` | `-v` | Verbose logging | `false` |
 | `--json` | `-j` | Output report in JSON format | `false` |

@@ -86,6 +86,7 @@ impl DownloadReport {
   /// * `origin_file_name` - The original filename from the URL
   /// * `storage_path` - The directory where the file will be saved
   /// * `file_path` - The full path to the file
+  #[must_use]
   pub fn new(
     url: impl Into<String>,
     file_name: impl Into<String>,

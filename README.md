@@ -38,13 +38,16 @@
 
 <div align="center">
   <h3>
-    <a href="https://docs.rs/siwi-download">
-      API Docs
-    </a>
+    <a href="https://docs.rs/siwi-download">API Docs</a>
+    <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+    <a href="CHANGELOG.md">Changelog</a>
+    <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+    <a href="AGENTS.md">Contributing</a>
   </h3>
 </div>
 
-Siwi Download is a downloader built on tokio and reqwest with breakpoint continuation support.
+Siwi Download is a downloader built on tokio and reqwest with breakpoint
+continuation support.
 
 ## Features
 
@@ -52,9 +55,15 @@ Siwi Download is a downloader built on tokio and reqwest with breakpoint continu
 - 📊 **Progress bar** - Visual download progress
 - 🔄 **Resume support** - Breakpoint continuation for interrupted downloads
 - 🌐 **Proxy support** - HTTP/HTTPS proxy support
+- ⏱️ **Timeouts** - Request (60s) and connect (10s) timeouts built in
 - 📁 **Custom paths** - Specify output directory and filename
 - 📄 **JSON output** - Machine-readable report output
 - 🔧 **Library API** - Use as a Rust library in your project
+
+## Requirements
+
+- Rust **1.85+** (edition 2024). The toolchain is pinned via
+  `rust-toolchain.toml`; CI verifies both `stable` and the MSRV.
 
 ## Install
 
@@ -129,12 +138,18 @@ siwi-download https://example.com/file.zip -j
   "storage_path": "/downloads",
   "file_path": "/downloads/file.zip",
   "file_size": 1048576,
+  "range_from": 0,
+  "download_start_at": "2026-07-21T10:30:00Z",
+  "download_end_at": "2026-07-21T10:30:05Z",
   "download_status": "Complete",
   "head_status": 200,
   "resp_status": 206,
-  "time_used": 5
+  "time_used": 5,
+  "msg": null
 }
 ```
+
+> The `headers` field is intentionally skipped during serialization.
 
 ## Library Usage
 

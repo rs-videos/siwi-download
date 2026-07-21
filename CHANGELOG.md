@@ -36,6 +36,25 @@ and may be incomplete.
   major-only (e.g. `4`) and refreshed `Cargo.lock` via `cargo update`,
   pulling in newer patch/minor releases across the dependency tree.
 
+### Documentation
+
+- Rewrote `AGENTS.md` to match the 2.0 codebase: new module layout, the
+  drop of `Cow<'a, str>`, `clippy::pedantic` policy, MSRV (1.85), the
+  full `cargo fmt/clippy/test/doc` command set, and a PR-readiness
+  checklist.
+- Corrected `skills/SKILL.md`: `--progress` default is `false` (not `true`),
+  matching the actual CLI.
+- Updated `README.md`: JSON output example now reflects all `DownloadReport`
+  fields (`range_from`, timestamps, `msg`); added MSRV note, timeouts to the
+  feature list, and links to `CHANGELOG.md` / `AGENTS.md`.
+
+### Added
+
+- `LICENSE` file (MIT) — the MIT license was declared in `Cargo.toml` but
+  the text was missing from the repo.
+- `#[must_use]` on `Download::new`, `DownloadOptions::new`, and
+  `DownloadReport::new` so callers don't accidentally drop instances.
+
 ## [2.0.0] - 2026-07-21
 
 A maintenance and hardening release. The public API was simplified and several
