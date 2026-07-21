@@ -45,6 +45,8 @@
     <a href="AGENTS.md">Contributing</a>
     <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
     <a href="docs/README.md">Articles</a>
+    <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+    <a href="docs/ROADMAP.md">Roadmap</a>
   </h3>
 </div>
 

@@ -10,7 +10,13 @@ and may be incomplete.
 
 ## [Unreleased]
 
-_No unreleased changes yet._
+### Documentation
+
+- Added `docs/ROADMAP.md`: full iteration plan from 2.x through 3.0, covering
+  per-minor themes, API drafts, acceptance criteria, effort estimates, and
+  an explicit list of things the project will NOT do (e.g. BitTorrent,
+  multi-connection sharding, TUI). Linked from the main README and
+  `docs/README.md`.
 
 ## [2.0.0] - 2026-07-21
 

@@ -10,6 +10,15 @@
 | 2 | [《5 分钟玩转 siwi-download：CLI + Rust 库上手指南》](./02-getting-started.md) | 想立刻用起来的人 | 掘金 / 知乎 / dev.to |
 | 3 | [《拆解 siwi-download：Rust 异步下载器是怎么炼成的》](./03-deep-dive.md) | Rust 开发者 | rustcc / 知乎 / 掘金 |
 
+## 项目规划
+
+| 文档 | 用途 |
+|---|---|
+| [ROADMAP.md](./ROADMAP.md) | 2.x → 3.0 迭代路线图（每个 minor 的主题、API 草案、验收标准、工作量估算） |
+| [../CHANGELOG.md](../CHANGELOG.md) | 已发布的版本变更记录 |
+| [../Release.md](../Release.md) | 发布流程手册 |
+| [../AGENTS.md](../AGENTS.md) | 贡献者指南（代码风格、命令、PR checklist） |
+
 ## 使用建议
 
 - **首发平台**：掘金、知乎、rustcc（中文 Rust 社区聚集地）
