@@ -25,8 +25,7 @@
 
 use clap::{Arg, ArgAction, Command};
 use serde_json::to_string_pretty;
-use siwi_download::download::Download;
-use siwi_download::download::DownloadOptions;
+use siwi_download::download::{Download, DownloadOptions};
 use siwi_download::error::AnyResult;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
@@ -35,12 +34,19 @@ use tracing_subscriber::FmtSubscriber;
 async fn main() -> AnyResult<()> {
   let matches = Command::new("siwi-download")
     .author("Mankong, siwilizhao")
-    .version("1.0.0")
+    .version(env!("CARGO_PKG_VERSION"))
     .about("Downloader with breakpoint continuation support")
     .arg(
       Arg::new("url")
-        .help("URL to download")
+        .help("URL to download (positional, or use --url)")
         .index(1)
+        .required(false),
+    )
+    .arg(
+      Arg::new("url_flag")
+        .help("URL to download (alternative to the positional argument)")
+        .long("url")
+        .short('u')
         .required(false),
     )
     .arg(
@@ -62,7 +68,6 @@ async fn main() -> AnyResult<()> {
         .help("Show download progress bar")
         .short('P')
         .long("progress")
-        .default_value("true")
         .action(ArgAction::SetTrue),
     )
     .arg(
@@ -77,7 +82,6 @@ async fn main() -> AnyResult<()> {
         .help("Verbose output")
         .short('v')
         .long("verbose")
-        .default_value("false")
         .action(ArgAction::SetTrue),
     )
     .arg(
@@ -85,25 +89,22 @@ async fn main() -> AnyResult<()> {
         .help("Output report in JSON format")
         .short('j')
         .long("json")
-        .default_value("false")
         .action(ArgAction::SetTrue),
     )
     .get_matches();
 
-  // Get URL from positional argument
-  let url = if let Some(url) = matches.get_one::<String>("url") {
-    url.clone()
-  } else {
-    eprintln!("Error: URL is required. Provide URL as first argument or use -u <url>.");
-    std::process::exit(1);
-  };
+  // URL can be provided either positionally or via -u/--url.
+  let url = matches
+    .get_one::<String>("url")
+    .or_else(|| matches.get_one::<String>("url_flag"))
+    .cloned()
+    .filter(|s| !s.is_empty())
+    .unwrap_or_else(|| {
+      eprintln!("Error: URL is required. Pass it as the first argument or via --url/-u.");
+      std::process::exit(1);
+    });
 
-  if url.is_empty() {
-    eprintln!("Error: URL is required. Provide URL as first argument or use -u <url>.");
-    std::process::exit(1);
-  }
-
-  let output = matches.get_one::<String>("output").unwrap().clone();
+  let output = matches.get_one::<String>("output").cloned().unwrap();
   let filename = matches
     .get_one::<String>("filename")
     .cloned()

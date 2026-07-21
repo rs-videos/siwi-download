@@ -1,0 +1,8 @@
+# Clippy configuration for siwi-download.
+#
+# Edition 2024 requires Rust 1.85+ at the time of writing.
+msrv = "1.85"
+
+# Many of our enum variants and fields use names that read naturally; don't
+# force them into the "name contains type" mold.
+avoid-breaking-exported-api = false

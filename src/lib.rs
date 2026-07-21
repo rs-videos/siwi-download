@@ -53,6 +53,16 @@
 //! siwi-download -u https://example.com/file.zip -o ./downloads -P
 //! ```
 
+// Enable a strict, opinionated set of clippy lints across the crate. Individual
+// noisy lints can be allowed below or at the use site.
+#![warn(clippy::pedantic)]
+#![allow(clippy::module_name_repetitions)]
+#![allow(clippy::must_use_candidate)]
+// Documenting every public error variant is noisy for this small crate; the
+// top-level docs cover the relevant semantics.
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_panics_doc)]
+
 pub mod download;
 pub mod error;
 pub mod utils;

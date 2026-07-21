@@ -7,8 +7,14 @@
 use crate::error::AnyResult;
 use chrono::{DateTime, Utc};
 use reqwest::Url;
-use std::{borrow::Cow, path::Path};
+use std::path::Path;
 use tokio::fs;
+
+/// Timestamp format used by [`gen_file_name`].
+///
+/// Uses only filename-safe characters (digits and `T`) to stay portable
+/// across platforms, including Windows where `:` is forbidden in paths.
+const FILE_NAME_TIMESTAMP_FMT: &str = "%Y%m%dT%H%M%S";
 
 /// Extracts the filename from a URL.
 ///
@@ -21,15 +27,15 @@ use tokio::fs;
 ///
 /// # Returns
 ///
-/// Returns a [`Cow`] containing the filename, or an empty string if
-/// the URL has no path segments.
-pub(crate) fn get_file_name_from_url<'a, S: AsRef<str>>(url: S) -> AnyResult<Cow<'a, str>> {
+/// Returns the filename, or an empty string if the URL has no path segments.
+///
+/// # Errors
+///
+/// Returns an error if the URL cannot be parsed.
+pub(crate) fn get_file_name_from_url<S: AsRef<str>>(url: S) -> AnyResult<String> {
   let parse = Url::parse(url.as_ref())?;
-  let file_name = parse
-    .path_segments()
-    .and_then(std::iter::Iterator::last)
-    .unwrap_or("");
-  Ok(Cow::Owned(file_name.to_owned()))
+  let file_name = parse.path_segments().and_then(Iterator::last).unwrap_or("");
+  Ok(file_name.to_owned())
 }
 
 /// Returns the current UTC date and time.
@@ -50,27 +56,29 @@ pub fn date() -> DateTime<Utc> {
 /// timestamp to the original filename, useful for avoiding conflicts
 /// when downloading files with the same name.
 ///
+/// The timestamp uses only filename-safe characters (`YYYYmmddTHHMMSS`)
+/// so the result is portable across platforms.
+///
 /// # Arguments
 ///
 /// * `file_name` - The original filename.
 ///
 /// # Returns
 ///
-/// Returns a [`Cow`] containing the new filename in the format
-/// `{timestamp}_{original_filename}`.
+/// Returns the new filename in the format `{timestamp}_{original_filename}`.
 ///
 /// # Example
 ///
 /// ```rust
 /// use siwi_download::utils::gen_file_name;
 ///
-/// let new_name = gen_file_name("document.pdf").unwrap();
-/// assert!(new_name.to_string().ends_with("document.pdf"));
+/// let new_name = gen_file_name("document.pdf");
+/// assert!(new_name.ends_with("document.pdf"));
 /// ```
-pub fn gen_file_name<'a, S: Into<Cow<'a, str>>>(file_name: S) -> AnyResult<Cow<'a, str>> {
-  let now = date().to_string();
-  let new_file_name = format!("{}_{}", now, file_name.into());
-  Ok(Cow::Owned(new_file_name))
+pub fn gen_file_name<S: AsRef<str>>(file_name: S) -> String {
+  let now = date();
+  let ts = now.format(FILE_NAME_TIMESTAMP_FMT).to_string();
+  format!("{}_{}", ts, file_name.as_ref())
 }
 
 /// Asynchronously creates all directories in the given path.
@@ -85,16 +93,20 @@ pub fn gen_file_name<'a, S: Into<Cow<'a, str>>>(file_name: S) -> AnyResult<Cow<'
 /// # Returns
 ///
 /// Returns `Ok(())` on success, or an error if directory creation fails.
+///
+/// # Errors
+///
+/// Returns an error if the directory cannot be created.
 pub async fn create_dir_all<S: AsRef<Path>>(src: S) -> AnyResult<()> {
   fs::create_dir_all(src.as_ref()).await?;
   Ok(())
 }
 
-/// Checks if the given path points to a file.
+/// Asynchronously checks if the given path points to a file.
 ///
-/// This function safely checks whether the path exists and is a regular file.
-/// Unlike [`std::fs::metadata`], this function returns `false` instead of
-/// an error if the path doesn't exist or cannot be accessed.
+/// This is a soft check: it returns `false` (rather than an error) if the
+/// path doesn't exist or its metadata cannot be read. Use [`tokio::fs::metadata`]
+/// directly if you need to distinguish "missing" from "permission denied".
 ///
 /// # Arguments
 ///
@@ -103,19 +115,17 @@ pub async fn create_dir_all<S: AsRef<Path>>(src: S) -> AnyResult<()> {
 /// # Returns
 ///
 /// Returns `true` if the path exists and is a file, `false` otherwise.
-pub fn is_file<S: AsRef<Path>>(dest: S) -> AnyResult<bool> {
-  let mut result: bool = false;
-  let maybe_file = Path::new(dest.as_ref());
-  if let Ok(metadata) = maybe_file.metadata() {
-    result = metadata.is_file();
+pub async fn is_file<S: AsRef<Path>>(dest: S) -> bool {
+  match fs::metadata(dest.as_ref()).await {
+    Ok(metadata) => metadata.is_file(),
+    Err(_) => false,
   }
-  Ok(result)
 }
 
-/// Checks if the given path points to a directory.
+/// Asynchronously checks if the given path points to a directory.
 ///
-/// This function safely checks whether the path exists and is a directory.
-/// Returns `false` instead of an error if the path doesn't exist.
+/// This is a soft check: it returns `false` (rather than an error) if the
+/// path doesn't exist or its metadata cannot be read.
 ///
 /// # Arguments
 ///
@@ -124,19 +134,17 @@ pub fn is_file<S: AsRef<Path>>(dest: S) -> AnyResult<bool> {
 /// # Returns
 ///
 /// Returns `true` if the path exists and is a directory, `false` otherwise.
-pub fn is_dir<S: AsRef<Path>>(dest: S) -> AnyResult<bool> {
-  let mut result: bool = false;
-  let maybe_file = Path::new(dest.as_ref());
-  if let Ok(metadata) = maybe_file.metadata() {
-    result = metadata.is_dir();
+pub async fn is_dir<S: AsRef<Path>>(dest: S) -> bool {
+  match fs::metadata(dest.as_ref()).await {
+    Ok(metadata) => metadata.is_dir(),
+    Err(_) => false,
   }
-  Ok(result)
 }
 
-/// Gets the size of the file at the given path.
+/// Asynchronously gets the size of the file at the given path.
 ///
-/// This function returns the file size in bytes. If the path doesn't
-/// exist or is not a file, it returns 0.
+/// This is a soft check: it returns `0` (rather than an error) if the path
+/// doesn't exist or its metadata cannot be read.
 ///
 /// # Arguments
 ///
@@ -144,14 +152,12 @@ pub fn is_dir<S: AsRef<Path>>(dest: S) -> AnyResult<bool> {
 ///
 /// # Returns
 ///
-/// Returns the file size in bytes, or 0 if the file doesn't exist.
-pub fn get_file_size<S: AsRef<Path>>(dest: S) -> AnyResult<u64> {
-  let mut result: u64 = 0;
-  let maybe_file = Path::new(dest.as_ref());
-  if let Ok(metadata) = maybe_file.metadata() {
-    result = metadata.len();
+/// Returns the file size in bytes, or `0` if the file doesn't exist.
+pub async fn get_file_size<S: AsRef<Path>>(dest: S) -> u64 {
+  match fs::metadata(dest.as_ref()).await {
+    Ok(metadata) => metadata.len(),
+    Err(_) => 0,
   }
-  Ok(result)
 }
 
 #[cfg(test)]
@@ -203,88 +209,92 @@ mod tests {
   }
 
   #[test]
-  fn test_gen_file_name() -> AnyResult<()> {
+  fn test_gen_file_name() {
     let original = "test.txt";
-    let generated = gen_file_name(original)?;
+    let generated = gen_file_name(original);
     // Should contain original filename
-    assert!(generated.to_string().ends_with("test.txt"));
+    assert!(generated.ends_with("test.txt"));
     // Should have a timestamp prefix
     let parts: Vec<&str> = generated.split('_').collect();
     assert!(parts.len() >= 2);
-    Ok(())
+    // Timestamp must be filename-safe: no colons (Windows-illegal).
+    assert!(
+      !generated.starts_with(':'),
+      "generated name should not start with a colon"
+    );
   }
 
-  #[test]
-  fn test_is_file_true() -> AnyResult<()> {
+  #[tokio::test]
+  async fn test_is_file_true() -> AnyResult<()> {
     let dir = tempdir()?;
     let file_path = dir.path().join("test.txt");
     let mut file = File::create(&file_path)?;
     file.write_all(b"test content")?;
-    assert!(is_file(&file_path)?);
+    assert!(is_file(&file_path).await);
     Ok(())
   }
 
-  #[test]
-  fn test_is_file_false_for_dir() -> AnyResult<()> {
+  #[tokio::test]
+  async fn test_is_file_false_for_dir() -> AnyResult<()> {
     let dir = tempdir()?;
-    assert!(!is_file(dir.path())?);
+    assert!(!is_file(dir.path()).await);
     Ok(())
   }
 
-  #[test]
-  fn test_is_file_false_nonexistent() -> AnyResult<()> {
+  #[tokio::test]
+  async fn test_is_file_false_nonexistent() -> AnyResult<()> {
     let path = Path::new("/nonexistent/path/file.txt");
-    assert!(!is_file(path)?);
+    assert!(!is_file(path).await);
     Ok(())
   }
 
-  #[test]
-  fn test_is_dir_true() -> AnyResult<()> {
+  #[tokio::test]
+  async fn test_is_dir_true() -> AnyResult<()> {
     let dir = tempdir()?;
-    assert!(is_dir(dir.path())?);
+    assert!(is_dir(dir.path()).await);
     Ok(())
   }
 
-  #[test]
-  fn test_is_dir_false_for_file() -> AnyResult<()> {
+  #[tokio::test]
+  async fn test_is_dir_false_for_file() -> AnyResult<()> {
     let dir = tempdir()?;
     let file_path = dir.path().join("test.txt");
     File::create(&file_path)?;
-    assert!(!is_dir(&file_path)?);
+    assert!(!is_dir(&file_path).await);
     Ok(())
   }
 
-  #[test]
-  fn test_is_dir_false_nonexistent() -> AnyResult<()> {
+  #[tokio::test]
+  async fn test_is_dir_false_nonexistent() -> AnyResult<()> {
     let path = Path::new("/nonexistent/path");
-    assert!(!is_dir(path)?);
+    assert!(!is_dir(path).await);
     Ok(())
   }
 
-  #[test]
-  fn test_get_file_size_with_content() -> AnyResult<()> {
+  #[tokio::test]
+  async fn test_get_file_size_with_content() -> AnyResult<()> {
     let dir = tempdir()?;
     let file_path = dir.path().join("test.txt");
     let content = b"hello world";
     let mut file = File::create(&file_path)?;
     file.write_all(content)?;
-    assert_eq!(content.len() as u64, get_file_size(&file_path)?);
+    assert_eq!(content.len() as u64, get_file_size(&file_path).await);
     Ok(())
   }
 
-  #[test]
-  fn test_get_file_size_empty_file() -> AnyResult<()> {
+  #[tokio::test]
+  async fn test_get_file_size_empty_file() -> AnyResult<()> {
     let dir = tempdir()?;
     let file_path = dir.path().join("empty.txt");
     File::create(&file_path)?;
-    assert_eq!(0, get_file_size(&file_path)?);
+    assert_eq!(0, get_file_size(&file_path).await);
     Ok(())
   }
 
-  #[test]
-  fn test_get_file_size_nonexistent() -> AnyResult<()> {
+  #[tokio::test]
+  async fn test_get_file_size_nonexistent() -> AnyResult<()> {
     let path = Path::new("/nonexistent/file.txt");
-    assert_eq!(0, get_file_size(path)?);
+    assert_eq!(0, get_file_size(path).await);
     Ok(())
   }
 }

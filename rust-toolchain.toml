@@ -1,0 +1,8 @@
+# Pin the Rust toolchain used by the project and CI.
+#
+# `stable` keeps contributors and CI on the same modern compiler while still
+# respecting the MSRV declared in Cargo.toml (which CI verifies separately on
+# the `1.85` toolchain).
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

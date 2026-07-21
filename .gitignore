@@ -2,3 +2,4 @@
 Cargo.lock
 storage/
 *.pkg
+.zcode/
