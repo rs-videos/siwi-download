@@ -54,6 +54,11 @@ and may be incomplete.
   the text was missing from the repo.
 - `#[must_use]` on `Download::new`, `DownloadOptions::new`, and
   `DownloadReport::new` so callers don't accidentally drop instances.
+- `docs/` article set (in Chinese) for community promotion:
+  - `docs/01-introduction.md` — project overview
+  - `docs/02-getting-started.md` — 5-minute quickstart (CLI + library)
+  - `docs/03-deep-dive.md` — source-level technical walkthrough
+  - `docs/README.md` — article index + publishing guide
 
 ## [2.0.0] - 2026-07-21
 

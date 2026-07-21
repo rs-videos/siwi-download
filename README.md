@@ -43,6 +43,8 @@
     <a href="CHANGELOG.md">Changelog</a>
     <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
     <a href="AGENTS.md">Contributing</a>
+    <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+    <a href="docs/README.md">Articles</a>
   </h3>
 </div>
 
