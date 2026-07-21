@@ -36,6 +36,7 @@ async fn main() -> AnyResult<()> {
     .author("Mankong, siwilizhao")
     .version(env!("CARGO_PKG_VERSION"))
     .about("Downloader with breakpoint continuation support")
+    .arg_required_else_help(true)
     .arg(
       Arg::new("url")
         .help("URL to download (positional, or use --url)")
@@ -93,15 +94,20 @@ async fn main() -> AnyResult<()> {
     )
     .get_matches();
 
-  // URL can be provided either positionally or via -u/--url.
+  // URL can be provided either positionally or via -u/--url. Handled here
+  // (rather than via clap's `required`) so users can combine `-u` with other
+  // flags in any order. `arg_required_else_help` above already covers the
+  // "no args at all" case.
   let url = matches
     .get_one::<String>("url")
     .or_else(|| matches.get_one::<String>("url_flag"))
     .cloned()
     .filter(|s| !s.is_empty())
     .unwrap_or_else(|| {
-      eprintln!("Error: URL is required. Pass it as the first argument or via --url/-u.");
-      std::process::exit(1);
+      eprintln!(
+        "Error: URL is required. Pass it as the first argument or via --url/-u.\nUse --help for usage."
+      );
+      std::process::exit(2);
     });
 
   let output = matches.get_one::<String>("output").cloned().unwrap();
