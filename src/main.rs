@@ -41,46 +41,7 @@ use siwi_download::utils::get_file_name_from_url;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
-/// Parses a speed spec like `10M` into bytes per second (1024-based).
-///
-/// Accepts plain byte counts and the suffixes `K`, `M`, `G` (optionally
-/// followed by `B`), case-insensitive.
-fn parse_speed_spec(spec: &str) -> AnyResult<u64> {
-  let spec = spec.trim();
-  let (digits, multiplier) = match spec.chars().last() {
-    Some(c) if c.is_ascii_alphabetic() => {
-      let mut stripped = &spec[..spec.len() - 1];
-      let mut base = c.to_ascii_uppercase();
-      // Allow an optional trailing `B` (e.g. `10MB`): drop it and use the
-      // preceding letter as the multiplier suffix.
-      if base == 'B' {
-        base = stripped
-          .chars()
-          .last()
-          .map(|prev| prev.to_ascii_uppercase())
-          .ok_or_else(|| anyhow::anyhow!("invalid speed `{spec}`: no number"))?;
-        stripped = &stripped[..stripped.len() - 1];
-      }
-      let mult = match base {
-        'K' => 1024u64,
-        'M' => 1024 * 1024,
-        'G' => 1024 * 1024 * 1024,
-        _ => {
-          return Err(anyhow::anyhow!(
-            "invalid speed `{spec}`: suffix must be K, M, or G"
-          ));
-        }
-      };
-      (stripped, mult)
-    }
-    _ => (spec, 1),
-  };
-  let value: u64 = digits
-    .trim()
-    .parse()
-    .map_err(|_| anyhow::anyhow!("invalid speed `{spec}`: not a number"))?;
-  Ok(value * multiplier)
-}
+mod config;
 
 #[tokio::main]
 async fn main() -> AnyResult<()> {
@@ -104,10 +65,14 @@ async fn main() -> AnyResult<()> {
     )
     .arg(
       Arg::new("output")
-        .help("Output directory for downloaded file")
+        .help("Output directory for downloaded file [default: .]")
         .short('o')
-        .long("output")
-        .default_value("."),
+        .long("output"),
+    )
+    .arg(
+      Arg::new("config")
+        .help("Path to config file [default: <platform config dir>/siwi-download/config.toml]")
+        .long("config"),
     )
     .arg(
       Arg::new("filename")
@@ -180,24 +145,46 @@ async fn main() -> AnyResult<()> {
       std::process::exit(2);
     });
 
-  let output = matches.get_one::<String>("output").cloned().unwrap();
+  let output_flag = matches
+    .get_one::<String>("output")
+    .cloned()
+    .filter(|s| !s.is_empty());
   let filename = matches
     .get_one::<String>("filename")
     .cloned()
     .filter(|s| !s.is_empty());
-  let progress = matches.get_flag("progress");
-  let proxy = matches.get_one::<String>("proxy").cloned();
+  let progress_flag = matches.get_flag("progress");
+  let proxy_flag = matches
+    .get_one::<String>("proxy")
+    .cloned()
+    .filter(|s| !s.is_empty());
   let verbose = matches.get_flag("verbose");
   let json_output = matches.get_flag("json");
   let checksum_spec = matches
     .get_one::<String>("checksum")
     .cloned()
     .filter(|s| !s.is_empty());
-  let max_speed_spec = matches
+  let max_speed_flag = matches
     .get_one::<String>("max_speed")
     .cloned()
     .filter(|s| !s.is_empty());
   let if_modified = matches.get_flag("if_modified");
+  let config_path = matches
+    .get_one::<String>("config")
+    .cloned()
+    .filter(|s| !s.is_empty());
+
+  // Layer the configuration: CLI flag > env var > config file > default.
+  // The config file must parse cleanly even when only defaults are used, so
+  // typos never silently change behavior.
+  let cfg = config::load(config_path.as_deref())?;
+  let resolved = config::resolve(cfg.as_ref(), &|k| std::env::var(k).ok())?;
+
+  let output = output_flag
+    .or(resolved.output)
+    .unwrap_or_else(|| ".".to_owned());
+  let progress = progress_flag || resolved.progress.unwrap_or(false);
+  let proxy = proxy_flag.or(resolved.proxy);
 
   // Parse --checksum up front so a malformed spec fails before any I/O.
   let parsed_checksum = match checksum_spec.as_deref() {
@@ -208,20 +195,21 @@ async fn main() -> AnyResult<()> {
     None => None,
   };
 
-  let max_speed = match max_speed_spec.as_deref() {
-    Some(spec) => {
-      let bytes = parse_speed_spec(spec)?;
-      if bytes == 0 {
-        return Err(anyhow::anyhow!("speed must be greater than zero"));
-      }
-      Some(bytes)
-    }
-    None => None,
+  let max_speed = match max_speed_flag.as_deref() {
+    Some(spec) => Some(config::parse_speed_spec(spec)?),
+    None => resolved.max_speed_bytes,
   };
+  if max_speed == Some(0) {
+    return Err(anyhow::anyhow!("speed must be greater than zero"));
+  }
 
   let log_level = if verbose { Level::DEBUG } else { Level::INFO };
 
-  let subscriber = FmtSubscriber::builder().with_max_level(log_level).finish();
+  // Logs go to stderr so `--json` stdout stays clean for piping into jq.
+  let subscriber = FmtSubscriber::builder()
+    .with_max_level(log_level)
+    .with_writer(std::io::stderr)
+    .finish();
   tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
   let mut options = DownloadOptions::default();
@@ -284,40 +272,4 @@ async fn main() -> AnyResult<()> {
   }
 
   Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-  use super::*;
-
-  #[test]
-  fn test_parse_speed_spec_plain() {
-    assert_eq!(1024, parse_speed_spec("1024").unwrap());
-    assert_eq!(0, parse_speed_spec("0").unwrap());
-  }
-
-  #[test]
-  fn test_parse_speed_spec_suffixes() {
-    assert_eq!(1024, parse_speed_spec("1K").unwrap());
-    assert_eq!(10 * 1024 * 1024, parse_speed_spec("10M").unwrap());
-    assert_eq!(1024 * 1024 * 1024, parse_speed_spec("1G").unwrap());
-  }
-
-  #[test]
-  fn test_parse_speed_spec_lowercase_and_b() {
-    assert_eq!(500 * 1024, parse_speed_spec("500k").unwrap());
-    assert_eq!(10 * 1024 * 1024, parse_speed_spec("10MB").unwrap());
-    assert_eq!(3 * 1024 * 1024, parse_speed_spec("3Mb").unwrap());
-  }
-
-  #[test]
-  fn test_parse_speed_spec_rejects_bad_suffix() {
-    assert!(parse_speed_spec("10X").is_err());
-  }
-
-  #[test]
-  fn test_parse_speed_spec_rejects_not_a_number() {
-    assert!(parse_speed_spec("abc").is_err());
-    assert!(parse_speed_spec("1.5M").is_err());
-  }
 }

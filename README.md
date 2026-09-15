@@ -133,6 +133,27 @@ siwi-download https://example.com/file.zip -v
 siwi-download https://example.com/file.zip -j
 ```
 
+Logs go to **stderr**, so `--json` stdout is safe to pipe into `jq`.
+
+**Verify the download against a published checksum:**
+```sh
+siwi-download https://example.com/file.iso --checksum sha256:abc123...
+```
+A mismatch fails the download (`download_status: "Error"`, exit code 10).
+
+**Cap the download speed:**
+```sh
+siwi-download https://example.com/file.iso --max-speed 10M
+```
+1024-based `K`/`M`/`G` suffixes (optional trailing `B`).
+
+**Skip unchanged files (conditional request):**
+```sh
+siwi-download https://example.com/dataset.tar.gz --if-modified
+```
+Sends `If-Modified-Since` derived from the local file's mtime; a `304`
+answer skips the body download entirely.
+
 **Output Example (JSON format):**
 ```json
 {
@@ -154,6 +175,35 @@ siwi-download https://example.com/file.zip -j
 ```
 
 > The `headers` field is intentionally skipped during serialization.
+
+## Configuration
+
+Defaults can be persisted in a TOML config file. The location is
+platform-dependent unless `--config <path>` names one explicitly:
+
+| Platform | Path |
+|---|---|
+| Linux | `$XDG_CONFIG_HOME/siwi-download/config.toml` or `~/.config/siwi-download/config.toml` |
+| macOS | `~/Library/Application Support/siwi-download/config.toml` |
+| Windows | `%APPDATA%\siwi-download\config.toml` |
+
+```toml
+[default]
+output = "./downloads"
+progress = true
+max_speed = "20M"     # 1024-based K/M/G suffixes
+
+[proxy]
+url = "http://127.0.0.1:7890"
+```
+
+Unknown keys are rejected so typos fail loudly. Precedence, highest first:
+
+1. CLI flags (`-o`, `-p`, `--max-speed`, `-P`)
+2. Environment variables (`SIWI_DOWNLOAD_OUTPUT`, `SIWI_DOWNLOAD_PROXY`,
+   `SIWI_DOWNLOAD_MAX_SPEED`, `SIWI_DOWNLOAD_PROGRESS`)
+3. The config file
+4. Built-in defaults
 
 ## Library Usage
 

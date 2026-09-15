@@ -49,12 +49,14 @@ cargo doc --no-deps
 src/
 ├── lib.rs              crate root; enables clippy::pedantic, re-exports modules
 ├── main.rs             CLI binary (clap)
+├── config.rs           CLI-only config layering (bin target; NOT part of the library)
 ├── error.rs            AnyError / AnyResult type aliases (anyhow)
 ├── utils.rs            URL parsing, async fs helpers, timestamp formatting
 └── download/
     ├── mod.rs          Download type + download() core + HTTP status constants
     ├── options.rs      DownloadOptions + builder
     ├── report.rs       DownloadReport + DownloadStatus
+    ├── checksum.rs     checksum algorithms, parse_spec, streaming hash/verify
     └── client.rs       build_client() helper (shared timeouts/proxy policy)
 
 examples/

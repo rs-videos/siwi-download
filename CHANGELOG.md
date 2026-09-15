@@ -36,6 +36,21 @@ Roadmap 2.1 "reliability basics" features (see `docs/ROADMAP.md`):
   on the result.
 - `utils::get_file_name_from_url` is now public (was `pub(crate)`); the CLI
   uses it for `--if-modified` and library users get the same capability.
+- **Config file support** — new TOML config at the platform config directory
+  (`~/.config/siwi-download/config.toml` on Linux,
+  `~/Library/Application Support/siwi-download/config.toml` on macOS,
+  `%APPDATA%\siwi-download\config.toml` on Windows) or `--config <path>`.
+  Supported keys: `[default] output/progress/max_speed`, `[proxy] url`.
+  Unknown keys are rejected so typos fail loudly.
+- **Environment variables** — `SIWI_DOWNLOAD_OUTPUT`, `SIWI_DOWNLOAD_PROGRESS`,
+  `SIWI_DOWNLOAD_MAX_SPEED`, `SIWI_DOWNLOAD_PROXY`. Precedence:
+  CLI flag > env var > config file > built-in default.
+- `--config <path>` CLI flag to point at an explicit config file.
+
+### Fixed
+
+- CLI logs no longer pollute stdout: `tracing-subscriber` writes to stderr,
+  so `--json` output is safe to pipe into `jq` or other parsers.
 
 ### Documentation
 
