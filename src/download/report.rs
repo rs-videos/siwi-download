@@ -71,6 +71,16 @@ pub struct DownloadReport {
   pub time_used: Option<i64>,
   /// Human-readable status message.
   pub msg: Option<String>,
+  /// Result of checksum verification: `Some(true)` when the file matched the
+  /// expected digest, `Some(false)` on mismatch, `None` when no checksum was
+  /// requested or the download never completed.
+  pub checksum_verified: Option<bool>,
+  /// `Some(true)` when the server answered `304 Not Modified` and the body
+  /// download was skipped.
+  pub not_modified: Option<bool>,
+  /// Average download speed in bytes per second, derived from the final file
+  /// size and `time_used`.
+  pub average_speed: Option<u64>,
 }
 
 impl DownloadReport {
@@ -110,6 +120,9 @@ impl DownloadReport {
       resp_status: None,
       time_used: None,
       msg: None,
+      checksum_verified: None,
+      not_modified: None,
+      average_speed: None,
     }
   }
 
@@ -179,6 +192,41 @@ impl DownloadReport {
       time_used = end.timestamp() - start.timestamp();
     }
     self.time_used = Some(time_used);
+    self
+  }
+
+  /// Sets the checksum verification result.
+  pub fn set_checksum_verified(&mut self, verified: bool) -> &mut Self {
+    self.checksum_verified = Some(verified);
+    self
+  }
+
+  /// Marks the download as skipped because the server answered `304`.
+  pub fn set_not_modified(&mut self) -> &mut Self {
+    self.not_modified = Some(true);
+    self
+  }
+
+  /// Sets the average download speed in bytes per second.
+  pub fn set_average_speed(&mut self, bytes_per_sec: u64) -> &mut Self {
+    self.average_speed = Some(bytes_per_sec);
+    self
+  }
+
+  /// Derives `average_speed` from `file_size` and `time_used`.
+  ///
+  /// A zero or negative `time_used` (sub-second downloads) yields the full
+  /// file size as the lower bound of the speed.
+  pub fn gen_average_speed(&mut self) -> &mut Self {
+    if let (Some(total), Some(secs)) = (self.file_size, self.time_used) {
+      let speed = if secs > 0 {
+        let secs_u = u64::try_from(secs).unwrap_or(1);
+        total / secs_u.max(1)
+      } else {
+        total
+      };
+      self.average_speed = Some(speed);
+    }
     self
   }
 
@@ -285,5 +333,56 @@ mod tests {
 
     // time_used should be 0 or positive (timestamps are very close)
     assert!(report.time_used.unwrap() >= 0);
+  }
+
+  #[test]
+  fn test_download_report_new_fields_default_none() {
+    let report = DownloadReport::new("https://example.com/f", "f", "f", "/s", "/s/f");
+    assert!(report.checksum_verified.is_none());
+    assert!(report.not_modified.is_none());
+    assert!(report.average_speed.is_none());
+  }
+
+  #[test]
+  fn test_download_report_checksum_verified_setter() {
+    let mut report = DownloadReport::new("u", "f", "f", "/s", "/s/f");
+    report.set_checksum_verified(true);
+    assert_eq!(Some(true), report.checksum_verified);
+    report.set_checksum_verified(false);
+    assert_eq!(Some(false), report.checksum_verified);
+  }
+
+  #[test]
+  fn test_download_report_not_modified_setter() {
+    let mut report = DownloadReport::new("u", "f", "f", "/s", "/s/f");
+    report.set_not_modified();
+    assert_eq!(Some(true), report.not_modified);
+  }
+
+  #[test]
+  fn test_gen_average_speed_positive_duration() {
+    use chrono::Duration;
+    let mut report = DownloadReport::new("u", "f", "f", "/s", "/s/f");
+    report.file_size = Some(1000);
+    report.download_start_at = Some(Utc::now() - Duration::seconds(10));
+    report.download_end_at = Some(Utc::now());
+    report.gen_time_used().gen_average_speed();
+    assert_eq!(Some(100), report.average_speed);
+  }
+
+  #[test]
+  fn test_gen_average_speed_sub_second_falls_back_to_size() {
+    let mut report = DownloadReport::new("u", "f", "f", "/s", "/s/f");
+    report.file_size = Some(512);
+    // No start/end timestamps -> time_used = 0 -> speed = file_size.
+    report.gen_time_used().gen_average_speed();
+    assert_eq!(Some(512), report.average_speed);
+  }
+
+  #[test]
+  fn test_gen_average_speed_without_file_size_stays_none() {
+    let mut report = DownloadReport::new("u", "f", "f", "/s", "/s/f");
+    report.gen_time_used().gen_average_speed();
+    assert!(report.average_speed.is_none());
   }
 }

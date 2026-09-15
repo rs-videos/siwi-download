@@ -32,7 +32,7 @@ const FILE_NAME_TIMESTAMP_FMT: &str = "%Y%m%dT%H%M%S";
 /// # Errors
 ///
 /// Returns an error if the URL cannot be parsed.
-pub(crate) fn get_file_name_from_url<S: AsRef<str>>(url: S) -> AnyResult<String> {
+pub fn get_file_name_from_url<S: AsRef<str>>(url: S) -> AnyResult<String> {
   let parse = Url::parse(url.as_ref())?;
   let file_name = parse.path_segments().and_then(Iterator::last).unwrap_or("");
   Ok(file_name.to_owned())

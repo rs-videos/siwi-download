@@ -28,10 +28,12 @@
 //! }
 //! ```
 
+pub mod checksum;
 pub mod client;
 pub mod options;
 pub mod report;
 
+pub use checksum::Algorithm;
 pub use options::DownloadOptions;
 pub use report::{DownloadReport, DownloadStatus};
 
@@ -39,11 +41,13 @@ use crate::{
   error::AnyResult,
   utils::{create_dir_all, get_file_name_from_url, get_file_size, is_dir},
 };
+use chrono::{DateTime, Utc};
 use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 use reqwest::header::CONTENT_LENGTH;
-use reqwest::header::{HeaderMap, HeaderValue, RANGE};
+use reqwest::header::{HeaderMap, HeaderValue, IF_MODIFIED_SINCE, IF_NONE_MATCH, RANGE};
 use std::fmt::Write;
 use std::path::Path;
+use std::time::Instant;
 use tokio::{
   fs,
   io::AsyncWriteExt,
@@ -57,6 +61,8 @@ const HTTP_OK: u16 = 200;
 const HTTP_PARTIAL_CONTENT: u16 = 206;
 /// HTTP status code for range not satisfiable.
 const HTTP_RANGE_NOT_SATISFIABLE: u16 = 416;
+/// HTTP status code for "not modified" answers to conditional requests.
+const HTTP_NOT_MODIFIED: u16 = 304;
 /// HTTP redirect threshold - codes >= 300 are redirects or errors.
 const HTTP_REDIRECT_THRESHOLD: u16 = 300;
 /// Maximum number of retry attempts for HEAD requests.
@@ -65,12 +71,21 @@ const MAX_HEAD_REQUEST_RETRIES: u32 = 5;
 const HEAD_REQUEST_RETRY_DELAY_SECS: u64 = 3;
 
 /// Returns `true` if `status` is one of the codes we treat as a successful
-/// response to a HEAD (or GET) request: `200`, `206`, or `416`.
+/// response to a HEAD (or GET) request: `200`, `206`, `304`, or `416`.
+///
+/// `304` counts as acceptable because it is a valid (terminal) answer to a
+/// conditional request, not a transient failure worth retrying.
 fn is_acceptable_status(status: u16) -> bool {
   matches!(
     status,
-    HTTP_OK | HTTP_PARTIAL_CONTENT | HTTP_RANGE_NOT_SATISFIABLE
+    HTTP_OK | HTTP_PARTIAL_CONTENT | HTTP_NOT_MODIFIED | HTTP_RANGE_NOT_SATISFIABLE
   )
+}
+
+/// Formats a timestamp as an HTTP-date (IMF-fixdate, RFC 9110 §5.6.7),
+/// e.g. `Sun, 06 Nov 1994 08:49:37 GMT`.
+fn format_http_date(dt: DateTime<Utc>) -> String {
+  dt.format("%a, %d %b %Y %H:%M:%S GMT").to_string()
 }
 
 /// The main downloader struct.
@@ -207,6 +222,16 @@ impl Download {
     };
     let range = format!("bytes={local_size}-");
     headers.insert(RANGE, HeaderValue::from_str(&range)?);
+
+    // Conditional-request headers: when the caller already knows the remote
+    // state, a `304 Not Modified` answer skips the body download entirely.
+    if let Some(since) = options.maybe_if_modified_since {
+      let value = format_http_date(since);
+      headers.insert(IF_MODIFIED_SINCE, HeaderValue::from_str(&value)?);
+    }
+    if let Some(etag) = options.maybe_if_none_match.as_ref() {
+      headers.insert(IF_NONE_MATCH, HeaderValue::from_str(etag)?);
+    }
     report.set_headers(headers.clone());
 
     // Build HTTP client with timeouts and optional proxy.
@@ -232,6 +257,16 @@ impl Download {
 
     // After retries, map redirect/error codes to terminal states.
     if status >= HTTP_REDIRECT_THRESHOLD {
+      if status == HTTP_NOT_MODIFIED {
+        // The server honored our conditional request: local copy is current.
+        report
+          .set_not_modified()
+          .set_download_status(DownloadStatus::Exists)
+          .set_download_end_at()
+          .gen_time_used()
+          .set_msg("not modified");
+        return Ok(report);
+      }
       if status == HTTP_RANGE_NOT_SATISFIABLE {
         report
           .set_download_status(DownloadStatus::Exists)
@@ -284,8 +319,19 @@ impl Download {
     let status = resp.status().as_u16();
     report.set_resp_status(status);
 
-    // Map the GET response status the same way as HEAD.
+    // Map the GET response status the same way as HEAD. 304 must be handled
+    // before opening the destination file — opening in append mode would
+    // touch its mtime and defeat the next `If-Modified-Since` check.
     if status >= HTTP_REDIRECT_THRESHOLD {
+      if status == HTTP_NOT_MODIFIED {
+        report
+          .set_not_modified()
+          .set_download_status(DownloadStatus::Exists)
+          .set_download_end_at()
+          .gen_time_used()
+          .set_msg("not modified");
+        return Ok(report);
+      }
       if status == HTTP_RANGE_NOT_SATISFIABLE {
         report
           .set_download_status(DownloadStatus::Exists)
@@ -316,8 +362,25 @@ impl Download {
       report.set_download_status(DownloadStatus::Create);
     }
 
+    let download_started = Instant::now();
+    let mut written_since_start: u64 = 0;
     while let Some(chunk) = resp.chunk().await? {
       dest.write_all(&chunk).await?;
+      written_since_start += chunk.len() as u64;
+      // Average-speed cap: if we are ahead of the allowed pace, sleep the
+      // difference so the average never exceeds `max_speed`.
+      if let Some(max_speed) = options.max_speed
+        && max_speed > 0
+      {
+        // f64 is exact for byte counts below 2^53 — far beyond any real
+        // download — so the precision-loss casts are safe here.
+        #[allow(clippy::cast_precision_loss)]
+        let allowed_elapsed = written_since_start as f64 / max_speed as f64;
+        let ahead_secs = allowed_elapsed - download_started.elapsed().as_secs_f64();
+        if ahead_secs > 0.0 {
+          sleep(Duration::from_secs_f64(ahead_secs)).await;
+        }
+      }
       if let Some(pb) = pb.as_ref() {
         pb.inc(chunk.len() as u64);
       }
@@ -332,7 +395,27 @@ impl Download {
     report
       .set_download_status(DownloadStatus::Complete)
       .set_download_end_at()
-      .gen_time_used();
+      .gen_time_used()
+      .gen_average_speed();
+
+    // Verify the downloaded file against the caller-provided checksum.
+    // The hash covers the whole on-disk file, so resumed downloads are
+    // verified in full, not just the appended tail.
+    if let Some((algo, expected)) = options.maybe_checksum.as_ref() {
+      let ok = checksum::verify(file_path, *algo, expected).await?;
+      report.set_checksum_verified(ok);
+      if !ok {
+        report
+          .set_download_status(DownloadStatus::Error)
+          .set_msg(format!(
+            "checksum mismatch: expected {} {}",
+            algo.name(),
+            expected
+          ));
+        return Ok(report);
+      }
+      info!("checksum verified ({})", algo.name());
+    }
 
     Ok(report)
   }
@@ -383,9 +466,21 @@ mod tests {
   fn test_is_acceptable_status() {
     assert!(is_acceptable_status(200));
     assert!(is_acceptable_status(206));
+    assert!(is_acceptable_status(304));
     assert!(is_acceptable_status(416));
     assert!(!is_acceptable_status(404));
     assert!(!is_acceptable_status(500));
     assert!(!is_acceptable_status(301));
+  }
+
+  #[test]
+  fn test_format_http_date() {
+    use chrono::TimeZone;
+    // 1994-11-06 08:49:37 UTC — the RFC example timestamp.
+    let dt = Utc
+      .with_ymd_and_hms(1994, 11, 6, 8, 49, 37)
+      .single()
+      .unwrap();
+    assert_eq!("Sun, 06 Nov 1994 08:49:37 GMT", format_http_date(dt));
   }
 }

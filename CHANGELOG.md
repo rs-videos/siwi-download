@@ -10,6 +10,33 @@ and may be incomplete.
 
 ## [Unreleased]
 
+### Added
+
+Roadmap 2.1 "reliability basics" features (see `docs/ROADMAP.md`):
+
+- **Checksum verification** — new `download::checksum` module with
+  `Algorithm` (SHA-256 / SHA-1 / MD5), `parse_spec` (`algo:hex` or
+  `algo=hex`), streaming `hash_file`, and `verify`. `DownloadOptions::
+  set_checksum(algo, expected_hex)` enables verification; the result lands
+  in `DownloadReport::checksum_verified` and a mismatch fails the download.
+  The CLI grows `--checksum sha256:<hex>`.
+- **Download rate limiting** — `DownloadOptions::set_max_speed(bytes_per_sec)`
+  caps the average speed (enforced between chunks). CLI: `--max-speed 10M`
+  (1024-based `K`/`M`/`G` suffixes, optional `B`).
+- **Conditional requests** — `DownloadOptions::set_if_modified_since(dt)`
+  and `set_if_none_match(etag)` send the corresponding precondition headers;
+  a `304 Not Modified` answer skips the body download and reports
+  `DownloadReport::not_modified = true` without touching the local file's
+  mtime. CLI: `--if-modified` derives `If-Modified-Since` from the local
+  file's mtime, so re-running the same command skips unchanged files.
+- `DownloadReport::average_speed` (bytes/second) plus `gen_average_speed()`,
+  derived from the final size and `time_used`.
+- The CLI now exits with code `10` when the download ends in
+  `DownloadStatus::Error` (e.g. checksum mismatch), so scripts can branch
+  on the result.
+- `utils::get_file_name_from_url` is now public (was `pub(crate)`); the CLI
+  uses it for `--if-modified` and library users get the same capability.
+
 ### Documentation
 
 - Added `docs/ROADMAP.md`: full iteration plan from 2.x through 3.0, covering

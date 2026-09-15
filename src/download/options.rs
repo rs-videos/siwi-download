@@ -3,6 +3,8 @@
 //! This module exposes [`DownloadOptions`], a builder-style configuration
 //! struct consumed by [`Download::download`](super::Download::download).
 
+use super::checksum::Algorithm;
+use chrono::{DateTime, Utc};
 use reqwest::header::HeaderMap;
 
 /// Configuration options for a download operation.
@@ -32,6 +34,17 @@ pub struct DownloadOptions {
   pub maybe_headers: Option<HeaderMap>,
   /// Whether to render a progress bar during the download.
   pub show_progress: bool,
+  /// Optional checksum the downloaded file must match
+  /// `(algorithm, expected hex digest)`.
+  pub maybe_checksum: Option<(Algorithm, String)>,
+  /// Optional average-speed cap in bytes per second.
+  pub max_speed: Option<u64>,
+  /// Optional `If-Modified-Since` timestamp; a `304` response marks the
+  /// report as `not_modified` and skips the body download.
+  pub maybe_if_modified_since: Option<DateTime<Utc>>,
+  /// Optional `If-None-Match` entity tag; a `304` response marks the
+  /// report as `not_modified` and skips the body download.
+  pub maybe_if_none_match: Option<String>,
 }
 
 impl DownloadOptions {
@@ -49,6 +62,10 @@ impl DownloadOptions {
       maybe_proxy: None,
       maybe_headers: None,
       show_progress: false,
+      maybe_checksum: None,
+      max_speed: None,
+      maybe_if_modified_since: None,
+      maybe_if_none_match: None,
     }
   }
 
@@ -109,6 +126,67 @@ impl DownloadOptions {
     self.maybe_file_name = Some(file_name.into());
     self
   }
+
+  /// Sets the checksum the downloaded file must match.
+  ///
+  /// After a successful download the file is hashed with `algo` and compared
+  /// (case-insensitively) against `expected_hex`; the outcome is recorded in
+  /// [`DownloadReport::checksum_verified`](super::DownloadReport). A mismatch
+  /// fails the download (`DownloadStatus::Error`).
+  ///
+  /// # Arguments
+  ///
+  /// * `algo` - Hash algorithm to verify with
+  /// * `expected_hex` - Expected digest as a hex string
+  ///
+  /// # Returns
+  ///
+  /// A mutable reference to `self` for method chaining.
+  pub fn set_checksum(&mut self, algo: Algorithm, expected_hex: impl Into<String>) -> &mut Self {
+    self.maybe_checksum = Some((algo, expected_hex.into()));
+    self
+  }
+
+  /// Caps the average download speed at `bytes_per_sec`.
+  ///
+  /// The cap is enforced between chunks: if data arrives faster than the
+  /// limit, the writer sleeps to keep the average at or below the rate.
+  ///
+  /// # Returns
+  ///
+  /// A mutable reference to `self` for method chaining.
+  pub fn set_max_speed(&mut self, bytes_per_sec: u64) -> &mut Self {
+    self.max_speed = Some(bytes_per_sec);
+    self
+  }
+
+  /// Adds an `If-Modified-Since` precondition.
+  ///
+  /// When the server answers `304 Not Modified`, nothing is downloaded and
+  /// [`DownloadReport::not_modified`](super::DownloadReport) is set to
+  /// `Some(true)`.
+  ///
+  /// # Returns
+  ///
+  /// A mutable reference to `self` for method chaining.
+  pub fn set_if_modified_since(&mut self, since: DateTime<Utc>) -> &mut Self {
+    self.maybe_if_modified_since = Some(since);
+    self
+  }
+
+  /// Adds an `If-None-Match` precondition with the given entity tag.
+  ///
+  /// When the server answers `304 Not Modified`, nothing is downloaded and
+  /// [`DownloadReport::not_modified`](super::DownloadReport) is set to
+  /// `Some(true)`.
+  ///
+  /// # Returns
+  ///
+  /// A mutable reference to `self` for method chaining.
+  pub fn set_if_none_match<S: Into<String>>(&mut self, etag: S) -> &mut Self {
+    self.maybe_if_none_match = Some(etag.into());
+    self
+  }
 }
 
 #[cfg(test)]
@@ -147,5 +225,41 @@ mod tests {
       options.maybe_proxy
     );
     assert!(options.show_progress);
+  }
+
+  #[test]
+  fn test_download_options_checksum() {
+    let mut options = DownloadOptions::default();
+    let expected = "a".repeat(64);
+    options.set_checksum(Algorithm::Sha256, expected.clone());
+    assert_eq!(Some((Algorithm::Sha256, expected)), options.maybe_checksum);
+  }
+
+  #[test]
+  fn test_download_options_max_speed() {
+    let mut options = DownloadOptions::default();
+    options.set_max_speed(1024 * 1024);
+    assert_eq!(Some(1024 * 1024), options.max_speed);
+  }
+
+  #[test]
+  fn test_download_options_conditional() {
+    let mut options = DownloadOptions::default();
+    let since = Utc::now();
+    options
+      .set_if_modified_since(since)
+      .set_if_none_match("\"abc123\"");
+
+    assert_eq!(Some(since), options.maybe_if_modified_since);
+    assert_eq!(Some("\"abc123\"".to_owned()), options.maybe_if_none_match);
+  }
+
+  #[test]
+  fn test_download_options_new_fields_default_none() {
+    let options = DownloadOptions::default();
+    assert!(options.maybe_checksum.is_none());
+    assert!(options.max_speed.is_none());
+    assert!(options.maybe_if_modified_since.is_none());
+    assert!(options.maybe_if_none_match.is_none());
   }
 }
