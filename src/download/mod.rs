@@ -31,6 +31,7 @@
 pub mod checksum;
 pub mod client;
 pub mod events;
+pub mod observability;
 pub mod options;
 pub mod queue;
 pub mod report;
@@ -38,6 +39,7 @@ pub mod sink;
 
 pub use checksum::Algorithm;
 pub use events::{CommandHook, DownloadEvent, DownloadHook, FailingHook, LogHook, RecordingHook};
+pub use observability::{AccessLogHook, Metrics};
 pub use options::DownloadOptions;
 pub use queue::{DownloadQueue, DownloadTask, TaskResult};
 pub use report::{DownloadReport, DownloadStatus};
@@ -241,6 +243,7 @@ impl Download {
       Some(headers) => headers,
       None => HeaderMap::new(),
     };
+    let cancel_flag = options.cancel.clone();
     let range = format!("bytes={local_size}-");
     headers.insert(RANGE, HeaderValue::from_str(&range)?);
 
@@ -275,6 +278,7 @@ impl Download {
         attempt,
         status, "HEAD request returned non-acceptable status, retrying"
       );
+      dispatch_hooks(&options.hooks, &DownloadEvent::Retry { attempt, status })?;
       sleep(Duration::from_secs(HEAD_REQUEST_RETRY_DELAY_SECS)).await;
       resp = client.head(url_ref).send().await?;
       status = resp.status().as_u16();
@@ -405,6 +409,16 @@ impl Download {
     let mut last_progress: Option<Instant> = None;
     let mut written_since_start: u64 = 0;
     while let Some(chunk) = resp.chunk().await? {
+      if cancel_flag
+        .as_ref()
+        .is_some_and(|f| f.load(std::sync::atomic::Ordering::Relaxed))
+      {
+        info!(
+          "download cancelled after {} bytes",
+          local_size + written_since_start
+        );
+        break;
+      }
       let offset = local_size + written_since_start;
       dest.write_all(&chunk).await?;
       written_since_start += chunk.len() as u64;
@@ -457,6 +471,18 @@ impl Download {
       pb.finish();
     }
 
+    if cancel_flag
+      .as_ref()
+      .is_some_and(|f| f.load(std::sync::atomic::Ordering::Relaxed))
+    {
+      report
+        .set_download_status(DownloadStatus::Error)
+        .set_download_end_at()
+        .gen_time_used()
+        .set_msg("cancelled");
+      return Ok(report);
+    }
+
     report
       .set_download_status(DownloadStatus::Complete)
       .set_download_end_at()
@@ -502,6 +528,117 @@ impl Download {
   /// Hooks and rate limiting work exactly as in [`Download::download`]; in
   /// `ChunkWritten` events the `offset` counts bytes handed to the sink.
   ///
+  /// Probes the remote server without downloading the body (dry-run).
+  ///
+  /// Performs the same HEAD request (with the resume `Range` header and
+  /// bounded retry) as [`Download::download`], maps the status the same
+  /// way, and reports `file_size` / `range_from` — but never issues a GET
+  /// or touches the local file. Useful for "is this URL alive and how big
+  /// is it" checks.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the URL is invalid or the probe request fails.
+  pub async fn probe(
+    &self,
+    url: impl AsRef<str>,
+    options: &DownloadOptions,
+  ) -> AnyResult<DownloadReport> {
+    let url_ref = url.as_ref();
+    let origin_file_name = get_file_name_from_url(url_ref)?;
+    let file_name = options
+      .maybe_file_name
+      .clone()
+      .unwrap_or_else(|| origin_file_name.clone());
+    let file_path = Path::new(self.storage_path.as_str())
+      .join(&file_name)
+      .to_string_lossy()
+      .into_owned();
+
+    let mut report = DownloadReport::new(
+      url_ref.to_owned(),
+      file_name,
+      origin_file_name,
+      self.storage_path.clone(),
+      file_path,
+    );
+
+    let local_size = get_file_size(report.file_path.as_str()).await;
+    report.set_range_from(local_size).set_download_start_at();
+
+    let mut headers = options.maybe_headers.clone().unwrap_or_default();
+    let range = format!("bytes={local_size}-");
+    headers.insert(RANGE, HeaderValue::from_str(&range)?);
+    if let Some(since) = options.maybe_if_modified_since {
+      headers.insert(
+        IF_MODIFIED_SINCE,
+        HeaderValue::from_str(&format_http_date(since))?,
+      );
+    }
+    if let Some(etag) = options.maybe_if_none_match.as_ref() {
+      headers.insert(IF_NONE_MATCH, HeaderValue::from_str(etag)?);
+    }
+    report.set_headers(headers.clone());
+
+    let client = client::build_client(options.maybe_proxy.as_deref(), headers)?;
+
+    let mut resp = client.head(url_ref).send().await?;
+    let mut status = resp.status().as_u16();
+    let mut attempt: u32 = 0;
+    while !is_acceptable_status(status) && attempt < MAX_HEAD_REQUEST_RETRIES {
+      attempt += 1;
+      dispatch_hooks(&options.hooks, &DownloadEvent::Retry { attempt, status })?;
+      sleep(Duration::from_secs(HEAD_REQUEST_RETRY_DELAY_SECS)).await;
+      resp = client.head(url_ref).send().await?;
+      status = resp.status().as_u16();
+    }
+    report.set_head_status(status);
+
+    let content_length = resp
+      .headers()
+      .get(CONTENT_LENGTH)
+      .and_then(|hv| hv.to_str().ok())
+      .and_then(|l| l.parse::<u64>().ok());
+
+    if status >= HTTP_REDIRECT_THRESHOLD {
+      let (msg, exists) = if status == HTTP_NOT_MODIFIED {
+        report.set_not_modified();
+        ("not modified".to_owned(), true)
+      } else if status == HTTP_RANGE_NOT_SATISFIABLE {
+        ("file exists".to_owned(), true)
+      } else {
+        (format!("probe status error: {status}"), false)
+      };
+      if exists {
+        report.set_download_status(DownloadStatus::Exists);
+      } else {
+        report.set_download_status(DownloadStatus::Error);
+      }
+      report.set_download_end_at().gen_time_used().set_msg(msg);
+      return Ok(report);
+    }
+
+    let total = if status == HTTP_PARTIAL_CONTENT {
+      local_size + content_length.unwrap_or(0)
+    } else {
+      content_length.unwrap_or(0)
+    };
+    report
+      .set_file_size(total)
+      .set_resp_status(status)
+      .set_download_end_at()
+      .gen_time_used()
+      .set_download_status(if total > local_size {
+        DownloadStatus::Append
+      } else if local_size > 0 {
+        DownloadStatus::Exists
+      } else {
+        DownloadStatus::Create
+      });
+
+    Ok(report)
+  }
+
   /// Takes `&self` so the same [`Download`] can be reused.
   ///
   /// # Arguments
@@ -552,6 +689,7 @@ impl Download {
     report.set_headers(headers.clone());
 
     let client = client::build_client(options.maybe_proxy.as_deref(), headers)?;
+    let cancel_flag = options.cancel.clone();
 
     dispatch_hooks(
       &options.hooks,
@@ -602,6 +740,13 @@ impl Download {
     let mut last_progress: Option<Instant> = None;
     let mut processed: u64 = 0;
     while let Some(chunk) = resp.chunk().await? {
+      if cancel_flag
+        .as_ref()
+        .is_some_and(|f| f.load(std::sync::atomic::Ordering::Relaxed))
+      {
+        info!("stream cancelled after {processed} bytes");
+        break;
+      }
       sink.write_chunk(&chunk).await?;
       processed += chunk.len() as u64;
 
@@ -646,6 +791,20 @@ impl Download {
     sink.finalize().await?;
     if let Some(pb) = pb {
       pb.finish();
+    }
+
+    if options
+      .cancel
+      .as_ref()
+      .is_some_and(|f| f.load(std::sync::atomic::Ordering::Relaxed))
+    {
+      report
+        .set_file_size(processed)
+        .set_download_status(DownloadStatus::Error)
+        .set_download_end_at()
+        .gen_time_used()
+        .set_msg("cancelled");
+      return Ok(report);
     }
 
     report

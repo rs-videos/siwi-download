@@ -40,7 +40,7 @@
 2026-Q3  2.1  ✅ 已发布 v2.1.0（校验和、限速、条件请求、配置文件、环境变量）
 2026-Q3  2.2  ✅ 已发布 v2.2.0（Hook 事件流、StreamSink、stream()、--stdout、gzip）
 2026-Q3  2.3  ✅ 已发布 v2.3.0（DownloadQueue、并发上限、depends_on、--batch）
-2026-Q4  2.4  进行中（metrics、访问日志、优雅退出、--dry-run）
+2026-Q4  2.4  ✅ 已发布 v2.4.0（metrics、访问日志、优雅退出、--dry-run）
 2027-Q1  3.0  规划中：Pipeline 架构（Source → Filter → Sink）
 ```
 

@@ -67,6 +67,13 @@ pub enum DownloadEvent<'a> {
     /// Total size in bytes when the server reported one.
     content_length: Option<u64>,
   },
+  /// A probe request is being retried after a non-acceptable status.
+  Retry {
+    /// 1-based retry attempt number.
+    attempt: u32,
+    /// The status that triggered the retry.
+    status: u16,
+  },
   /// A chunk has been written to the destination.
   ChunkWritten {
     /// Offset of the chunk's first byte within the final file.
@@ -121,6 +128,9 @@ impl DownloadHook for LogHook {
   fn on_event(&self, event: DownloadEvent<'_>) -> AnyResult<()> {
     match &event {
       DownloadEvent::BeforeRequest { url } => debug!(url, "hook: before request"),
+      DownloadEvent::Retry { attempt, status } => {
+        debug!(attempt, status, "hook: retrying probe");
+      }
       DownloadEvent::HeadersReceived {
         url,
         status,
@@ -283,6 +293,7 @@ impl DownloadHook for RecordingHook {
       DownloadEvent::ChunkWritten { len, .. } => format!("chunk:{len}"),
       DownloadEvent::Progress { downloaded, .. } => format!("progress:{downloaded}"),
       DownloadEvent::Complete { report } => format!("complete:{}", report.file_path),
+      DownloadEvent::Retry { attempt, status } => format!("retry:{attempt}:{status}"),
       DownloadEvent::Error { msg } => format!("error:{msg}"),
     };
     self.events.lock().expect("recording lock").push(summary);

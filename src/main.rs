@@ -36,7 +36,8 @@ use clap::{Arg, ArgAction, Command};
 use serde::Deserialize;
 use serde_json::to_string_pretty;
 use siwi_download::download::checksum;
-use siwi_download::download::{CommandHook, Download, DownloadOptions};
+use siwi_download::download::observability::{AccessLogHook, Metrics};
+use siwi_download::download::{CommandHook, Download, DownloadHook, DownloadOptions};
 use siwi_download::error::AnyResult;
 use siwi_download::utils::get_file_name_from_url;
 use std::sync::Arc;
@@ -120,6 +121,23 @@ async fn main() -> AnyResult<()> {
         .help("TOML batch manifest: [default] output/progress/max_speed, concurrent = N, [[tasks]] id/url/output/file_name/depends_on. Incompatible with the positional url, -u, --stdout, and -f")
         .long("batch")
         .conflicts_with_all(["url", "url_flag", "stdout", "filename"]),
+    )
+    .arg(
+      Arg::new("dry_run")
+        .help("Probe the URL (HEAD) and print the report without downloading")
+        .long("dry-run")
+        .action(ArgAction::SetTrue)
+        .conflicts_with_all(["stdout", "on_complete", "batch", "checksum"]),
+    )
+    .arg(
+      Arg::new("metrics_file")
+        .help("Write Prometheus text metrics for this run to this file")
+        .long("metrics-file"),
+    )
+    .arg(
+      Arg::new("access_log")
+        .help("Append a JSON access log line per download to this file")
+        .long("access-log"),
     )
     .arg(
       Arg::new("on_complete")
@@ -214,6 +232,15 @@ async fn main() -> AnyResult<()> {
     .filter(|s| !s.is_empty());
   let if_modified = matches.get_flag("if_modified");
   let stdout_mode = matches.get_flag("stdout");
+  let dry_run = matches.get_flag("dry_run");
+  let metrics_file = matches
+    .get_one::<String>("metrics_file")
+    .cloned()
+    .filter(|s| !s.is_empty());
+  let access_log = matches
+    .get_one::<String>("access_log")
+    .cloned()
+    .filter(|s| !s.is_empty());
   let on_complete = matches
     .get_one::<String>("on_complete")
     .cloned()
@@ -275,8 +302,44 @@ async fn main() -> AnyResult<()> {
     options.add_hook(Arc::new(CommandHook::new(cmd)));
   }
 
+  // Observability hooks compose like any other hook.
+  let metrics = metrics_file.clone().map(|_| Arc::new(Metrics::new()));
+  if let Some(m) = metrics.as_ref() {
+    options.add_hook(m.clone() as Arc<dyn DownloadHook>);
+  }
+  if let Some(path) = access_log.as_ref() {
+    match AccessLogHook::to_file(path) {
+      Ok(hook) => options.add_hook(Arc::new(hook)),
+      Err(e) => return Err(anyhow::anyhow!("{e}")),
+    };
+  }
+
+  // Ctrl+C sets the cooperative cancel flag: the current chunk finishes,
+  // the file is flushed, and the partial download remains resumable.
+  let cancel_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+  options.set_cancel(cancel_flag.clone());
+  {
+    let cancel_flag = cancel_flag.clone();
+    tokio::spawn(async move {
+      if tokio::signal::ctrl_c().await.is_ok() {
+        eprintln!("\nreceived Ctrl+C: finishing current chunk, progress is resumable");
+        cancel_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+      }
+    });
+  }
+
   let download = Download::new(&output);
   download.auto_create_storage_path().await?;
+
+  if dry_run {
+    let report = download.probe(&url, &options).await?;
+    if json_output {
+      println!("{}", to_string_pretty(&report)?);
+    } else {
+      println!("{report:#?}");
+    }
+    return Ok(());
+  }
 
   // `--if-modified` derives If-Modified-Since from the local file's mtime:
   // a completed download sets mtime to "now", so re-running with the flag
@@ -312,6 +375,15 @@ async fn main() -> AnyResult<()> {
   } else {
     download.download(&url, options).await?
   };
+
+  if let Some(m) = metrics.as_ref() {
+    if let Err(e) = std::fs::write(
+      metrics_file.as_deref().unwrap_or("./siwi-metrics.prom"),
+      m.render_prometheus(),
+    ) {
+      eprintln!("warning: could not write metrics file: {e}");
+    }
+  }
 
   if json_output {
     println!("{}", to_string_pretty(&report)?);

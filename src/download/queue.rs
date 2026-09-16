@@ -352,6 +352,7 @@ impl DownloadQueue {
           maybe_if_modified_since: base_options.maybe_if_modified_since,
           maybe_if_none_match: base_options.maybe_if_none_match.clone(),
           hooks: base_options.hooks.clone(),
+          cancel: base_options.cancel.clone(),
         };
         join_set.spawn(async move {
           let report = dl.download(&task.url, opts).await;

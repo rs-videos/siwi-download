@@ -50,6 +50,12 @@ pub struct DownloadOptions {
   pub maybe_if_none_match: Option<String>,
   /// Hooks observing the download lifecycle, invoked in registration order.
   pub hooks: Vec<Arc<dyn DownloadHook>>,
+  /// Cooperative cancellation flag. When flipped to `true` (e.g. from a
+  /// SIGINT handler), the chunk loop stops after the current chunk, the
+  /// file is flushed, and the report carries
+  /// `DownloadStatus::Error` with msg "cancelled" — already-written bytes
+  /// stay on disk for breakpoint continuation.
+  pub cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl fmt::Debug for DownloadOptions {
@@ -64,6 +70,7 @@ impl fmt::Debug for DownloadOptions {
       .field("maybe_if_modified_since", &self.maybe_if_modified_since)
       .field("maybe_if_none_match", &self.maybe_if_none_match)
       .field("hooks", &self.hooks.len())
+      .field("cancel", &self.cancel.is_some())
       .finish()
   }
 }
@@ -88,6 +95,7 @@ impl DownloadOptions {
       maybe_if_modified_since: None,
       maybe_if_none_match: None,
       hooks: Vec::new(),
+      cancel: None,
     }
   }
 
@@ -221,6 +229,16 @@ impl DownloadOptions {
   /// A mutable reference to `self` for method chaining.
   pub fn add_hook(&mut self, hook: Arc<dyn DownloadHook>) -> &mut Self {
     self.hooks.push(hook);
+    self
+  }
+
+  /// Attaches a cooperative cancellation flag (see the field docs).
+  ///
+  /// # Returns
+  ///
+  /// A mutable reference to `self` for method chaining.
+  pub fn set_cancel(&mut self, flag: Arc<std::sync::atomic::AtomicBool>) -> &mut Self {
+    self.cancel = Some(flag);
     self
   }
 }
