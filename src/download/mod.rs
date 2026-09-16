@@ -32,12 +32,14 @@ pub mod checksum;
 pub mod client;
 pub mod events;
 pub mod options;
+pub mod queue;
 pub mod report;
 pub mod sink;
 
 pub use checksum::Algorithm;
 pub use events::{CommandHook, DownloadEvent, DownloadHook, FailingHook, LogHook, RecordingHook};
 pub use options::DownloadOptions;
+pub use queue::{DownloadQueue, DownloadTask, TaskResult};
 pub use report::{DownloadReport, DownloadStatus};
 pub use sink::StreamSink;
 

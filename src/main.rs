@@ -33,6 +33,7 @@
 //! For more information, run: `siwi-download --help`
 
 use clap::{Arg, ArgAction, Command};
+use serde::Deserialize;
 use serde_json::to_string_pretty;
 use siwi_download::download::checksum;
 use siwi_download::download::{CommandHook, Download, DownloadOptions};
@@ -115,6 +116,12 @@ async fn main() -> AnyResult<()> {
         .action(ArgAction::SetTrue),
     )
     .arg(
+      Arg::new("batch")
+        .help("TOML batch manifest: [default] output/progress/max_speed, concurrent = N, [[tasks]] id/url/output/file_name/depends_on. Incompatible with the positional url, -u, --stdout, and -f")
+        .long("batch")
+        .conflicts_with_all(["url", "url_flag", "stdout", "filename"]),
+    )
+    .arg(
       Arg::new("on_complete")
         .help("Run this shell command when the download finishes. Context via env vars: SIWI_FILE_PATH, SIWI_FILE_SIZE, SIWI_URL, SIWI_STATUS, SIWI_DOWNLOAD_STATUS")
         .long("on-complete"),
@@ -141,6 +148,32 @@ async fn main() -> AnyResult<()> {
         .action(ArgAction::SetTrue),
     )
     .get_matches();
+
+  let verbose = matches.get_flag("verbose");
+  let json_output = matches.get_flag("json");
+  let batch_path = matches
+    .get_one::<String>("batch")
+    .cloned()
+    .filter(|s| !s.is_empty());
+
+  let log_level = if verbose { Level::DEBUG } else { Level::INFO };
+
+  // Logs go to stderr so `--json` stdout stays clean for piping into jq.
+  let subscriber = FmtSubscriber::builder()
+    .with_max_level(log_level)
+    .with_writer(std::io::stderr)
+    .finish();
+  tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+
+  // Batch mode runs a whole manifest and exits; the single-URL path below
+  // never runs.
+  if let Some(manifest_path) = batch_path {
+    let exit_code = run_batch(&manifest_path, verbose).await?;
+    if exit_code != 0 {
+      std::process::exit(exit_code.into());
+    }
+    return Ok(());
+  }
 
   // URL can be provided either positionally or via -u/--url. Handled here
   // (rather than via clap's `required`) so users can combine `-u` with other
@@ -171,8 +204,6 @@ async fn main() -> AnyResult<()> {
     .get_one::<String>("proxy")
     .cloned()
     .filter(|s| !s.is_empty());
-  let verbose = matches.get_flag("verbose");
-  let json_output = matches.get_flag("json");
   let checksum_spec = matches
     .get_one::<String>("checksum")
     .cloned()
@@ -220,15 +251,6 @@ async fn main() -> AnyResult<()> {
   if max_speed == Some(0) {
     return Err(anyhow::anyhow!("speed must be greater than zero"));
   }
-
-  let log_level = if verbose { Level::DEBUG } else { Level::INFO };
-
-  // Logs go to stderr so `--json` stdout stays clean for piping into jq.
-  let subscriber = FmtSubscriber::builder()
-    .with_max_level(log_level)
-    .with_writer(std::io::stderr)
-    .finish();
-  tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
   let mut options = DownloadOptions::default();
   options.set_show_progress(progress);
@@ -304,4 +326,73 @@ async fn main() -> AnyResult<()> {
   }
 
   Ok(())
+}
+
+/// Runs a batch manifest: parse, validate, execute, summarize.
+///
+/// Returns the process exit code (0 on full success, 10 when any task
+/// failed or was skipped).
+async fn run_batch(manifest_path: &str, _verbose: bool) -> AnyResult<u8> {
+  use siwi_download::download::queue::{DownloadQueue, DownloadTask};
+
+  let raw = std::fs::read_to_string(manifest_path)
+    .map_err(|e| anyhow::anyhow!("cannot read batch manifest `{manifest_path}`: {e}"))?;
+  #[derive(Deserialize)]
+  struct Manifest {
+    #[serde(default)]
+    concurrent: Option<usize>,
+    #[serde(default)]
+    state_file: Option<String>,
+    #[serde(default)]
+    tasks: Vec<DownloadTask>,
+  }
+  let manifest: Manifest = toml::from_str(&raw)
+    .map_err(|e| anyhow::anyhow!("cannot parse batch manifest `{manifest_path}`: {e}"))?;
+  if manifest.tasks.is_empty() {
+    return Err(anyhow::anyhow!("batch manifest has no [[tasks]]"));
+  }
+
+  let mut queue = DownloadQueue::new(manifest.concurrent.unwrap_or(1).max(1));
+  if let Some(state_file) = manifest.state_file.as_ref() {
+    queue = queue.state_file(state_file);
+  }
+  for task in manifest.tasks {
+    queue.push(task);
+  }
+
+  // Persist the validated definitions so an interrupted run can be re-loaded.
+  if let Some(state_file) = queue.state_file.clone() {
+    queue.save_state(&state_file)?;
+  }
+
+  let output = "./";
+  let downloader = Download::new(output);
+  downloader.auto_create_storage_path().await?;
+  let base_options = DownloadOptions::default();
+  let results = queue.run(&downloader, &base_options).await?;
+
+  let failed: Vec<_> = results.iter().filter(|r| !r.is_success()).collect();
+  for r in &results {
+    let status = r
+      .report
+      .download_status
+      .as_ref()
+      .map(|s| format!("{s:?}"))
+      .unwrap_or_else(|| "Unknown".into());
+    let size = r
+      .report
+      .file_size
+      .map(|s| s.to_string())
+      .unwrap_or_else(|| "-".into());
+    let msg = r.report.msg.clone().unwrap_or_default();
+    println!("{:<20} {:<10} {:>12}  {}", r.task_id, status, size, msg);
+  }
+  println!(
+    "\n{} task(s): {} ok, {} failed/skipped",
+    results.len(),
+    results.len() - failed.len(),
+    failed.len()
+  );
+
+  Ok(if failed.is_empty() { 0 } else { 10 })
 }

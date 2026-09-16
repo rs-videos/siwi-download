@@ -205,6 +205,36 @@ Unknown keys are rejected so typos fail loudly. Precedence, highest first:
 3. The config file
 4. Built-in defaults
 
+## Batch Downloads
+
+Run a whole set of downloads from a TOML manifest with a concurrency cap and
+`depends_on` ordering:
+
+```toml
+# batch.toml
+concurrent = 2
+state_file = "./state.json"   # optional: persist definitions for resuming
+
+[[tasks]]
+id = "model"
+url = "https://example.com/model.bin"
+output = "./models"
+
+[[tasks]]
+id = "dataset"
+url = "https://example.com/dataset.tar.gz"
+output = "./data"
+depends_on = ["model"]        # waits until `model` completes
+```
+
+```sh
+siwi-download --batch batch.toml
+```
+
+Failed dependencies cascade as *skipped* (never silently ignored); the
+command exits `10` when anything failed. Re-running an interrupted batch
+resumes unfinished files via breakpoint continuation.
+
 ## Library Usage
 
 > cargo run --example download

@@ -12,6 +12,23 @@ and may be incomplete.
 
 ### Added
 
+Roadmap 2.3 "multi-task orchestration" (see `docs/ROADMAP.md`):
+
+- New `download::queue` module: `DownloadQueue` runs `DownloadTask`s with a
+  concurrency cap (`max_concurrent`) and `depends_on` dependency ordering.
+- Kahn-style cycle detection up front (`validate()`), with a concrete cycle
+  in the error message; unknown dependency ids are also rejected.
+- Failed dependencies cascade as skipped tasks: their reports carry
+  `DownloadStatus::Error` with "skipped: dependency `<id>` failed" — never
+  a silent ignore. Independent tasks are unaffected by unrelated failures.
+- Per-task `output` directory and `file_name` overrides (serde-renamed to
+  manifest-friendly keys).
+- `save_state`/`load_state` persist task definitions as JSON; resuming an
+  interrupted batch works through breakpoint continuation.
+- CLI `--batch <manifest.toml>`: `concurrent`, optional `state_file`, and
+  `[[tasks]]` with `id`/`url`/`output`/`file_name`/`depends_on`. Prints a
+  per-task summary table; exits `10` when anything failed or was skipped.
+
 Roadmap 2.2 "hooks & event stream" second slice — **streaming sinks**
 (see `docs/ROADMAP.md`):
 

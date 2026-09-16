@@ -53,10 +53,13 @@ src/
 ├── error.rs            AnyError / AnyResult type aliases (anyhow)
 ├── utils.rs            URL parsing, async fs helpers, timestamp formatting
 └── download/
-    ├── mod.rs          Download type + download() core + HTTP status constants
+    ├── mod.rs          Download type + download()/stream() core + HTTP constants
     ├── options.rs      DownloadOptions + builder
     ├── report.rs       DownloadReport + DownloadStatus
     ├── checksum.rs     checksum algorithms, parse_spec, streaming hash/verify
+    ├── events.rs       DownloadEvent/DownloadHook lifecycle hooks
+    ├── sink.rs         StreamSink + File/Memory/Hash/Tee/Stdout/Gunzip sinks
+    ├── queue.rs        DownloadQueue: batch orchestration, deps, state files
     └── client.rs       build_client() helper (shared timeouts/proxy policy)
 
 examples/
