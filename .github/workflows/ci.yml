@@ -72,6 +72,9 @@ jobs:
         run: cargo build --all-targets --verbose
       - name: cargo test (all targets)
         run: cargo test --all-targets --verbose
+      # Verify the optional `gzip` feature (GunzipSink) builds and passes.
+      - name: cargo test (all features)
+        run: cargo test --all-targets --all-features --verbose
 
   # Fast-fail dependency-tree sanity check on MSRV.
   msrv-verify:

@@ -62,6 +62,9 @@
 // top-level docs cover the relevant semantics.
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
+// `StreamSink` is an async trait; impls whose methods do no awaiting (e.g.
+// hashing into an in-memory buffer) are by design, not an oversight.
+#![allow(clippy::unused_async_trait_impl)]
 
 pub mod download;
 pub mod error;

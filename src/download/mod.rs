@@ -33,11 +33,13 @@ pub mod client;
 pub mod events;
 pub mod options;
 pub mod report;
+pub mod sink;
 
 pub use checksum::Algorithm;
 pub use events::{CommandHook, DownloadEvent, DownloadHook, FailingHook, LogHook, RecordingHook};
 pub use options::DownloadOptions;
 pub use report::{DownloadReport, DownloadStatus};
+pub use sink::StreamSink;
 
 use crate::{
   error::AnyResult,
@@ -476,6 +478,177 @@ impl Download {
       }
       info!("checksum verified ({})", algo.name());
     }
+
+    dispatch_hooks(&options.hooks, &DownloadEvent::Complete { report: &report })?;
+
+    Ok(report)
+  }
+
+  /// Streams a download into an arbitrary [`StreamSink`] — no local file is
+  /// created.
+  ///
+  /// Unlike [`Download::download`], this method has no resume semantics
+  /// (there is no on-disk state to resume against): the request goes out
+  /// without a `Range` header and the body is handed to `sink` chunk by
+  /// chunk, then [`StreamSink::finalize`] is called. `options.maybe_checksum`
+  /// is ignored here; use a [`HashSink`](sink::HashSink) to hash in-flight
+  /// instead. The report's `file_path` is empty and `range_from` is `0`.
+  ///
+  /// Hooks and rate limiting work exactly as in [`Download::download`]; in
+  /// `ChunkWritten` events the `offset` counts bytes handed to the sink.
+  ///
+  /// Takes `&self` so the same [`Download`] can be reused.
+  ///
+  /// # Arguments
+  ///
+  /// * `url` - The URL of the file to download
+  /// * `options` - Configuration options (proxy, headers, hooks, max speed…)
+  /// * `sink` - Receives the body chunks; kept by the caller so sinks like
+  ///   [`HashSink`](sink::HashSink) can be inspected afterwards
+  ///
+  /// # Returns
+  ///
+  /// A [`DownloadReport`] with the byte count in `file_size`.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if any request fails or the sink rejects a chunk.
+  #[allow(clippy::too_many_lines)]
+  pub async fn stream<S>(
+    &self,
+    url: impl AsRef<str>,
+    options: DownloadOptions,
+    sink: &mut S,
+  ) -> AnyResult<DownloadReport>
+  where
+    S: StreamSink,
+  {
+    let url_ref = url.as_ref();
+    let origin_file_name = get_file_name_from_url(url_ref)?;
+    let file_name = options
+      .maybe_file_name
+      .clone()
+      .unwrap_or_else(|| origin_file_name.clone());
+
+    let mut report = DownloadReport::new(
+      url_ref.to_owned(),
+      file_name,
+      origin_file_name,
+      self.storage_path.clone(),
+      String::new(), // no file on disk
+    );
+
+    report.set_range_from(0).set_download_start_at();
+
+    let headers = match options.maybe_headers {
+      Some(headers) => headers,
+      None => HeaderMap::new(),
+    };
+    report.set_headers(headers.clone());
+
+    let client = client::build_client(options.maybe_proxy.as_deref(), headers)?;
+
+    dispatch_hooks(
+      &options.hooks,
+      &DownloadEvent::BeforeRequest { url: url_ref },
+    )?;
+
+    // No Range header here: streaming always starts from byte 0.
+    let mut resp = client.get(url_ref).send().await?;
+    let status = resp.status().as_u16();
+    report.set_resp_status(status);
+
+    if status >= HTTP_REDIRECT_THRESHOLD {
+      report
+        .set_download_status(DownloadStatus::Error)
+        .set_download_end_at()
+        .gen_time_used()
+        .set_msg(format!("download resp status error: {status}"));
+      let msg = report.msg.clone().unwrap_or_default();
+      dispatch_hooks(&options.hooks, &DownloadEvent::Error { msg: &msg })?;
+      return Ok(report);
+    }
+
+    let total = resp
+      .headers()
+      .get(CONTENT_LENGTH)
+      .and_then(|hv| hv.to_str().ok())
+      .and_then(|l| l.parse::<u64>().ok());
+
+    dispatch_hooks(
+      &options.hooks,
+      &DownloadEvent::HeadersReceived {
+        url: url_ref,
+        status,
+        content_length: total,
+      },
+    )?;
+
+    report.set_file_size(0);
+
+    // Only construct the (relatively costly) progress bar when requested.
+    let pb = if options.show_progress {
+      Some(build_progress_bar(total.unwrap_or(0), false, 0))
+    } else {
+      None
+    };
+
+    let download_started = Instant::now();
+    let mut last_progress: Option<Instant> = None;
+    let mut processed: u64 = 0;
+    while let Some(chunk) = resp.chunk().await? {
+      sink.write_chunk(&chunk).await?;
+      processed += chunk.len() as u64;
+
+      dispatch_hooks(
+        &options.hooks,
+        &DownloadEvent::ChunkWritten {
+          offset: processed - chunk.len() as u64,
+          len: chunk.len(),
+        },
+      )?;
+
+      let now = Instant::now();
+      let due = last_progress.is_none_or(|t| now.duration_since(t) >= events::PROGRESS_INTERVAL);
+      if due {
+        dispatch_hooks(
+          &options.hooks,
+          &DownloadEvent::Progress {
+            downloaded: processed,
+            total,
+          },
+        )?;
+        last_progress = Some(now);
+      }
+
+      if let Some(max_speed) = options.max_speed
+        && max_speed > 0
+      {
+        // f64 is exact for byte counts below 2^53 — far beyond any real
+        // download — so the precision-loss casts are safe here.
+        #[allow(clippy::cast_precision_loss)]
+        let allowed_elapsed = processed as f64 / max_speed as f64;
+        let ahead_secs = allowed_elapsed - download_started.elapsed().as_secs_f64();
+        if ahead_secs > 0.0 {
+          sleep(Duration::from_secs_f64(ahead_secs)).await;
+        }
+      }
+      if let Some(pb) = pb.as_ref() {
+        pb.inc(chunk.len() as u64);
+      }
+    }
+
+    sink.finalize().await?;
+    if let Some(pb) = pb {
+      pb.finish();
+    }
+
+    report
+      .set_file_size(processed)
+      .set_download_status(DownloadStatus::Complete)
+      .set_download_end_at()
+      .gen_time_used()
+      .gen_average_speed();
 
     dispatch_hooks(&options.hooks, &DownloadEvent::Complete { report: &report })?;
 

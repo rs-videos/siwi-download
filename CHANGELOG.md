@@ -12,6 +12,31 @@ and may be incomplete.
 
 ### Added
 
+Roadmap 2.2 "hooks & event stream" second slice — **streaming sinks**
+(see `docs/ROADMAP.md`):
+
+- New `download::sink` module with the `StreamSink` trait (native
+  async-fn-in-trait, generic — no boxing) and built-in sinks:
+  - `FileSink` (`create`/`append`)
+  - `MemorySink` (collect in RAM; also the streaming test bed)
+  - `HashSink` (SHA-256/SHA-1/MD5 on the fly; idempotent finalize;
+    `matches()` for verification)
+  - `TeeSink` (fan out to two sinks; nest for more)
+  - `StdoutSink` (binary-safe stdout, used by the CLI `--stdout` mode)
+  - `GunzipSink` behind the new optional **`gzip` feature**: streaming
+    decompression driven by `flate2::Decompress` with hand-rolled RFC 1952
+    header/trailer framing — supports multi-member streams and verifies
+    CRC32 + ISIZE per member. (`flate2::read::MultiGzDecoder` cannot be fed
+    a growing buffer, so the read-based approach was replaced.)
+- `Download::stream(url, options, &mut sink)`: stream any download into a
+  sink without touching local disk. Hooks, rate limiting, and the progress
+  bar work as in `download()`; the report carries byte counts with an
+  empty `file_path` and `range_from = 0`.
+- CLI `--stdout`: pipe the body (e.g. `siwi-download URL --stdout | tar xz`);
+  the report goes to stderr. Conflicts with `-o`, `-f`, `-j`.
+- CI: the test matrix now also runs `cargo test --all-features` so the
+  `gzip` feature is exercised on every platform.
+
 Roadmap 2.2 "hooks & event stream" features, first slice (see
 `docs/ROADMAP.md`):
 

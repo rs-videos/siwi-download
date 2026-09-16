@@ -120,6 +120,13 @@ async fn main() -> AnyResult<()> {
         .long("on-complete"),
     )
     .arg(
+      Arg::new("stdout")
+        .help("Stream the body to stdout instead of a file (binary-safe; the report goes to stderr; incompatible with -o, -f, and -j)")
+        .long("stdout")
+        .action(ArgAction::SetTrue)
+        .conflicts_with_all(["output", "filename", "json"]),
+    )
+    .arg(
       Arg::new("verbose")
         .help("Verbose output")
         .short('v')
@@ -175,6 +182,7 @@ async fn main() -> AnyResult<()> {
     .cloned()
     .filter(|s| !s.is_empty());
   let if_modified = matches.get_flag("if_modified");
+  let stdout_mode = matches.get_flag("stdout");
   let on_complete = matches
     .get_one::<String>("on_complete")
     .cloned()
@@ -271,11 +279,21 @@ async fn main() -> AnyResult<()> {
     }
   }
 
-  let report = download.download(&url, options).await?;
+  let report = if stdout_mode {
+    // Binary-safe pipe: body to stdout, report to stderr. `--if-modified`
+    // does not apply (there is no local file to compare against).
+    use siwi_download::download::sink::StdoutSink;
+    let mut sink = StdoutSink;
+    let report = download.stream(&url, options, &mut sink).await?;
+    eprintln!("{report:#?}");
+    report
+  } else {
+    download.download(&url, options).await?
+  };
 
   if json_output {
     println!("{}", to_string_pretty(&report)?);
-  } else {
+  } else if !stdout_mode {
     println!("{:#?}", report);
   }
 
