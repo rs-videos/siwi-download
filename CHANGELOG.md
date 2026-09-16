@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Entries for versions prior to `2.0.0` were reconstructed from the git history
 and may be incomplete.
 
-## [Unreleased]
+## [2.3.0] - 2026-09-16
 
 ### Added
 
@@ -28,6 +28,11 @@ Roadmap 2.3 "multi-task orchestration" (see `docs/ROADMAP.md`):
 - CLI `--batch <manifest.toml>`: `concurrent`, optional `state_file`, and
   `[[tasks]]` with `id`/`url`/`output`/`file_name`/`depends_on`. Prints a
   per-task summary table; exits `10` when anything failed or was skipped.
+
+
+## [2.2.0] - 2026-09-16
+
+### Added
 
 Roadmap 2.2 "hooks & event stream" second slice — **streaming sinks**
 (see `docs/ROADMAP.md`):
