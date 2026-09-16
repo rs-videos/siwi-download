@@ -215,7 +215,10 @@ impl Download {
       .clone()
       .unwrap_or_else(|| origin_file_name.clone());
 
-    let file_path = format!("{}/{}", self.storage_path, file_name);
+    // Native separators (Path::join, not string concat) so the reported path
+    // is valid on every platform, Windows included.
+    let file_path_buf = Path::new(self.storage_path.as_str()).join(&file_name);
+    let file_path = file_path_buf.to_string_lossy().into_owned();
 
     let mut report = DownloadReport::new(
       url_ref.to_owned(),

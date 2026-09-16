@@ -132,10 +132,14 @@ async fn test_command_hook_runs_on_complete() -> AnyResult<()> {
   let dir = tempdir()?;
   let marker = dir.path().join("marker.txt");
   // The command writes a marker using the env vars the hook provides.
+  // Shell syntax differs per platform ($VAR on sh, %VAR% on cmd).
+  #[cfg(unix)]
   let cmd = format!(
     "echo \"$SIWI_FILE_SIZE:$SIWI_STATUS\" > {}",
     marker.display()
   );
+  #[cfg(windows)]
+  let cmd = format!("echo %SIWI_FILE_SIZE%:%SIWI_STATUS% > {}", marker.display());
   let recorder = Arc::new(RecordingHook::new());
 
   let mut options = DownloadOptions::default();
@@ -152,8 +156,10 @@ async fn test_command_hook_runs_on_complete() -> AnyResult<()> {
   );
 
   let marker_content = std::fs::read_to_string(&marker)?;
+  // trim_end: cmd's echo appends \r\n, sh's \n.
   assert_eq!(
-    "11:complete\n", marker_content,
+    "11:complete",
+    marker_content.trim_end(),
     "CommandHook must pass size and status via env"
   );
   Ok(())
