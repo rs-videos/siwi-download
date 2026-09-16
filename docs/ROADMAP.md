@@ -522,8 +522,9 @@ src/
 |---|---|---|---|
 | 001 | 不做多连接分片下载 | 单连接 + 续传覆盖 95% 场景；赛道拥挤 | 2026-07 |
 | 002 | 不做 BT/磁力链 | 独立生态，偏离云原生定位 | 2026-07 |
-| 003 | Hook 用 trait object 而非泛型 | API 稳定，便于动态注册 | 2027-Q1（计划） |
+| 003 | Hook 用 trait object 而非泛型 | API 稳定，便于动态注册 | 2026-09（已实现） |
 | 004 | 3.0 用 Pipeline 架构，非嵌入式 | Source/Sink 抽象解锁云原生场景 | 2027-Q4（计划） |
+| 005 | `DownloadHook::on_event` 是同步方法 | 保持 trait 对象安全（无需 async_trait）；`CommandHook` 等阻塞型 hook 文档注明运行在下载任务上。异步 hook 推迟到 3.0 Pipeline（async trait 届时更成熟） | 2026-09 |
 
 ## 13. 如何贡献
 

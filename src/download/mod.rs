@@ -30,10 +30,12 @@
 
 pub mod checksum;
 pub mod client;
+pub mod events;
 pub mod options;
 pub mod report;
 
 pub use checksum::Algorithm;
+pub use events::{CommandHook, DownloadEvent, DownloadHook, FailingHook, LogHook, RecordingHook};
 pub use options::DownloadOptions;
 pub use report::{DownloadReport, DownloadStatus};
 
@@ -47,6 +49,7 @@ use reqwest::header::CONTENT_LENGTH;
 use reqwest::header::{HeaderMap, HeaderValue, IF_MODIFIED_SINCE, IF_NONE_MATCH, RANGE};
 use std::fmt::Write;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Instant;
 use tokio::{
   fs,
@@ -86,6 +89,17 @@ fn is_acceptable_status(status: u16) -> bool {
 /// e.g. `Sun, 06 Nov 1994 08:49:37 GMT`.
 fn format_http_date(dt: DateTime<Utc>) -> String {
   dt.format("%a, %d %b %Y %H:%M:%S GMT").to_string()
+}
+
+/// Delivers `event` to every registered hook, in registration order.
+///
+/// The first hook that returns an error aborts the download: the error is
+/// propagated to the caller and no further hooks (or events) run.
+fn dispatch_hooks(hooks: &[Arc<dyn DownloadHook>], event: &DownloadEvent<'_>) -> AnyResult<()> {
+  for hook in hooks {
+    hook.on_event(event.clone())?;
+  }
+  Ok(())
 }
 
 /// The main downloader struct.
@@ -237,6 +251,11 @@ impl Download {
     // Build HTTP client with timeouts and optional proxy.
     let client = client::build_client(options.maybe_proxy.as_deref(), headers)?;
 
+    dispatch_hooks(
+      &options.hooks,
+      &DownloadEvent::BeforeRequest { url: url_ref },
+    )?;
+
     // HEAD request to probe the server, with bounded retry on transient
     // non-acceptable responses. We only break early on an acceptable status;
     // otherwise we sleep and retry up to MAX_HEAD_REQUEST_RETRIES times.
@@ -280,6 +299,8 @@ impl Download {
         .set_download_end_at()
         .gen_time_used()
         .set_msg(format!("head resp status error: {status}"));
+      let msg = report.msg.clone().unwrap_or_default();
+      dispatch_hooks(&options.hooks, &DownloadEvent::Error { msg: &msg })?;
       return Ok(report);
     }
 
@@ -294,6 +315,15 @@ impl Download {
       info!("Content-Length: {}", l);
       content_length = l;
     }
+
+    dispatch_hooks(
+      &options.hooks,
+      &DownloadEvent::HeadersReceived {
+        url: url_ref,
+        status,
+        content_length: (content_length > 0).then_some(content_length),
+      },
+    )?;
 
     let total = if status == HTTP_PARTIAL_CONTENT {
       // Server honored the range: on-disk bytes + remaining bytes.
@@ -345,6 +375,8 @@ impl Download {
         .set_download_end_at()
         .gen_time_used()
         .set_msg(format!("download resp status error: {status}"));
+      let msg = report.msg.clone().unwrap_or_default();
+      dispatch_hooks(&options.hooks, &DownloadEvent::Error { msg: &msg })?;
       return Ok(report);
     }
 
@@ -363,10 +395,36 @@ impl Download {
     }
 
     let download_started = Instant::now();
+    let mut last_progress: Option<Instant> = None;
     let mut written_since_start: u64 = 0;
     while let Some(chunk) = resp.chunk().await? {
+      let offset = local_size + written_since_start;
       dest.write_all(&chunk).await?;
       written_since_start += chunk.len() as u64;
+
+      dispatch_hooks(
+        &options.hooks,
+        &DownloadEvent::ChunkWritten {
+          offset,
+          len: chunk.len(),
+        },
+      )?;
+
+      // Coarse progress events, rate-limited so slow hooks and log spam
+      // cannot fire once per chunk.
+      let now = Instant::now();
+      let due = last_progress.is_none_or(|t| now.duration_since(t) >= events::PROGRESS_INTERVAL);
+      if due {
+        dispatch_hooks(
+          &options.hooks,
+          &DownloadEvent::Progress {
+            downloaded: local_size + written_since_start,
+            total: Some(total),
+          },
+        )?;
+        last_progress = Some(now);
+      }
+
       // Average-speed cap: if we are ahead of the allowed pace, sleep the
       // difference so the average never exceeds `max_speed`.
       if let Some(max_speed) = options.max_speed
@@ -412,10 +470,14 @@ impl Download {
             algo.name(),
             expected
           ));
+        let msg = report.msg.clone().unwrap_or_default();
+        dispatch_hooks(&options.hooks, &DownloadEvent::Error { msg: &msg })?;
         return Ok(report);
       }
       info!("checksum verified ({})", algo.name());
     }
+
+    dispatch_hooks(&options.hooks, &DownloadEvent::Complete { report: &report })?;
 
     Ok(report)
   }

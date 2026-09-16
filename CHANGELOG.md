@@ -12,6 +12,33 @@ and may be incomplete.
 
 ### Added
 
+Roadmap 2.2 "hooks & event stream" features, first slice (see
+`docs/ROADMAP.md`):
+
+- **Download lifecycle events** — new `download::events` module with the
+  `DownloadEvent` enum (`BeforeRequest`, `HeadersReceived`, `ChunkWritten`,
+  `Progress`, `Complete`, `Error`) and the object-safe `DownloadHook`
+  trait (`Arc<dyn DownloadHook>` per ADR-003/ADR-005). Hooks run in
+  registration order; a hook returning an error aborts the download.
+  `DownloadOptions::add_hook` registers hooks.
+- `Progress` events are rate-limited to at most one per 100 ms so slow
+  hooks cannot fire once per chunk.
+- **Built-in hooks** — `LogHook` (tracing output for every event),
+  `CommandHook` (runs a shell command on completion; context passed via
+  `SIWI_FILE_PATH` / `SIWI_FILE_SIZE` / `SIWI_URL` / `SIWI_STATUS` /
+  `SIWI_DOWNLOAD_STATUS` environment variables, never string
+  interpolation, so paths with spaces are safe), plus `RecordingHook` and
+  `FailingHook` test aids.
+- CLI `--on-complete <command>` runs a command when the download finishes.
+- Integration test suite (`tests/hooks.rs`) with an in-process mock HTTP
+  server: asserts event ordering on a real download, hook-triggered
+  aborts, `CommandHook` execution, and `Error` events on checksum
+  mismatch.
+
+## [2.1.0] - 2026-09-16
+
+### Added
+
 Roadmap 2.1 "reliability basics" features (see `docs/ROADMAP.md`):
 
 - **Checksum verification** — new `download::checksum` module with
@@ -215,7 +242,8 @@ A maintenance and hardening release. The public API was simplified, the
 - `Cow<'a, str>` used for lifetime-efficient string handling in the API.
 
 <!-- Link references -->
-[Unreleased]: https://github.com/rs-videos/siwi-download/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/rs-videos/siwi-download/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/rs-videos/siwi-download/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/rs-videos/siwi-download/compare/v1.0.1...v2.0.0
 [1.0.1]: https://github.com/rs-videos/siwi-download/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/rs-videos/siwi-download/compare/v0.3.0...v1.0.0

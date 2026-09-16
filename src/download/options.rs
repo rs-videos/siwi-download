@@ -4,8 +4,11 @@
 //! struct consumed by [`Download::download`](super::Download::download).
 
 use super::checksum::Algorithm;
+use super::events::DownloadHook;
 use chrono::{DateTime, Utc};
 use reqwest::header::HeaderMap;
+use std::fmt;
+use std::sync::Arc;
 
 /// Configuration options for a download operation.
 ///
@@ -24,7 +27,7 @@ use reqwest::header::HeaderMap;
 ///     .set_proxy("http://proxy.example.com:8080")
 ///     .set_show_progress(true);
 /// ```
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct DownloadOptions {
   /// Optional override for the downloaded file's name.
   pub maybe_file_name: Option<String>,
@@ -45,6 +48,24 @@ pub struct DownloadOptions {
   /// Optional `If-None-Match` entity tag; a `304` response marks the
   /// report as `not_modified` and skips the body download.
   pub maybe_if_none_match: Option<String>,
+  /// Hooks observing the download lifecycle, invoked in registration order.
+  pub hooks: Vec<Arc<dyn DownloadHook>>,
+}
+
+impl fmt::Debug for DownloadOptions {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_struct("DownloadOptions")
+      .field("maybe_file_name", &self.maybe_file_name)
+      .field("maybe_proxy", &self.maybe_proxy)
+      .field("maybe_headers", &self.maybe_headers)
+      .field("show_progress", &self.show_progress)
+      .field("maybe_checksum", &self.maybe_checksum)
+      .field("max_speed", &self.max_speed)
+      .field("maybe_if_modified_since", &self.maybe_if_modified_since)
+      .field("maybe_if_none_match", &self.maybe_if_none_match)
+      .field("hooks", &self.hooks.len())
+      .finish()
+  }
 }
 
 impl DownloadOptions {
@@ -66,6 +87,7 @@ impl DownloadOptions {
       max_speed: None,
       maybe_if_modified_since: None,
       maybe_if_none_match: None,
+      hooks: Vec::new(),
     }
   }
 
@@ -187,6 +209,20 @@ impl DownloadOptions {
     self.maybe_if_none_match = Some(etag.into());
     self
   }
+
+  /// Registers a lifecycle [`DownloadHook`].
+  ///
+  /// Hooks run in registration order and observe every
+  /// [`DownloadEvent`](super::events::DownloadEvent). A hook returning an
+  /// error aborts the download.
+  ///
+  /// # Returns
+  ///
+  /// A mutable reference to `self` for method chaining.
+  pub fn add_hook(&mut self, hook: Arc<dyn DownloadHook>) -> &mut Self {
+    self.hooks.push(hook);
+    self
+  }
 }
 
 #[cfg(test)]
@@ -261,5 +297,29 @@ mod tests {
     assert!(options.max_speed.is_none());
     assert!(options.maybe_if_modified_since.is_none());
     assert!(options.maybe_if_none_match.is_none());
+    assert!(options.hooks.is_empty());
+  }
+
+  #[test]
+  fn test_download_options_add_hook() {
+    use crate::download::events::RecordingHook;
+
+    let mut options = DownloadOptions::default();
+    options
+      .add_hook(Arc::new(RecordingHook::new()))
+      .add_hook(Arc::new(RecordingHook::new()));
+    assert_eq!(2, options.hooks.len());
+  }
+
+  #[test]
+  fn test_download_options_debug_lists_hook_count() {
+    use crate::download::events::RecordingHook;
+
+    let mut options = DownloadOptions::default();
+    options.add_hook(Arc::new(RecordingHook::new()));
+    let debug = format!("{options:?}");
+    assert!(debug.contains("hooks: 1"), "{debug}");
+    // Hook internals never leak through Debug.
+    assert!(!debug.contains("RecordingHook"));
   }
 }

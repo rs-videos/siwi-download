@@ -35,9 +35,10 @@
 use clap::{Arg, ArgAction, Command};
 use serde_json::to_string_pretty;
 use siwi_download::download::checksum;
-use siwi_download::download::{Download, DownloadOptions};
+use siwi_download::download::{CommandHook, Download, DownloadOptions};
 use siwi_download::error::AnyResult;
 use siwi_download::utils::get_file_name_from_url;
+use std::sync::Arc;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
@@ -114,6 +115,11 @@ async fn main() -> AnyResult<()> {
         .action(ArgAction::SetTrue),
     )
     .arg(
+      Arg::new("on_complete")
+        .help("Run this shell command when the download finishes. Context via env vars: SIWI_FILE_PATH, SIWI_FILE_SIZE, SIWI_URL, SIWI_STATUS, SIWI_DOWNLOAD_STATUS")
+        .long("on-complete"),
+    )
+    .arg(
       Arg::new("verbose")
         .help("Verbose output")
         .short('v')
@@ -169,6 +175,10 @@ async fn main() -> AnyResult<()> {
     .cloned()
     .filter(|s| !s.is_empty());
   let if_modified = matches.get_flag("if_modified");
+  let on_complete = matches
+    .get_one::<String>("on_complete")
+    .cloned()
+    .filter(|s| !s.is_empty());
   let config_path = matches
     .get_one::<String>("config")
     .cloned()
@@ -229,6 +239,10 @@ async fn main() -> AnyResult<()> {
 
   if let Some(bytes) = max_speed {
     options.set_max_speed(bytes);
+  }
+
+  if let Some(cmd) = on_complete {
+    options.add_hook(Arc::new(CommandHook::new(cmd)));
   }
 
   let download = Download::new(&output);
