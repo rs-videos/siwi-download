@@ -9,11 +9,13 @@
 | 1 | [《siwi-download：一个用 Rust 写的轻量下载器》](./01-introduction.md) | 所有开发者 | 掘金 / 知乎 / V2EX / 公众号 |
 | 2 | [《5 分钟玩转 siwi-download：CLI + Rust 库上手指南》](./02-getting-started.md) | 想立刻用起来的人 | 掘金 / 知乎 / dev.to |
 | 3 | [《拆解 siwi-download：Rust 异步下载器是怎么炼成的》](./03-deep-dive.md) | Rust 开发者 | rustcc / 知乎 / 掘金 |
+| 4 | [《siwi-download 2.x 全记录：五个月，五个版本，从重构到生产就绪》](./04-2x-review.md) | 所有开发者 / 潜在贡献者 | 掘金 / 知乎 / rustcc / 公众号 |
 
 ## 项目规划
 
 | 文档 | 用途 |
 |---|---|
+| [design/30-pipeline.md](./design/30-pipeline.md) | 3.0 Pipeline 架构设计 RFC（Source/Filter/Sink、迁移路径、里程碑、开放问题） |
 | [ROADMAP.md](./ROADMAP.md) | 2.x → 3.0 迭代路线图（每个 minor 的主题、API 草案、验收标准、工作量估算） |
 | [../CHANGELOG.md](../CHANGELOG.md) | 已发布的版本变更记录 |
 | [../Release.md](../Release.md) | 发布流程手册 |
