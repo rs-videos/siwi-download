@@ -1,6 +1,7 @@
 # RFC: 3.0 Pipeline Architecture — Source → Filter → Sink
 
-- **Status**: M1 implemented behind the `unstable` feature (v2.5.0)
+- **Status**: M1 shipped in v2.5.0; M2 slice 1 (filters) landed behind
+  the `unstable` feature
 - **Target version**: 3.0.0
 - **Related ADRs**: 001 (no sharding), 002 (no P2P), 003 (trait-object hooks), 004 (pipeline at 3.0), 005 (sync hooks)
 - **Discuss**: open an issue tagged `roadmap-discussion` referencing this file
@@ -177,7 +178,7 @@ let report = Pipeline::new(HttpSource::new(url), FileSink::create(path).await?)
 | # | Scope | Est. |
 |---|---|---|
 | M1 | `Source`/`Sink` traits + `HttpSource`/`FileSource`/`FileSink` + runner; `download()`/`stream()` refactored onto the shared engine; benchmarks green | ✅ done (v2.5.0, `unstable`) |
-| M2 | `Filter` trait + Gunzip/Checksum/Tee migration; `stream()` refactored onto it | 3 wks |
+| M2 | `Filter` trait + Gunzip/Checksum/Tee migration; `stream()` refactored onto it — **slice 1 done** (`Filter`, `ChecksumFilter`, `GunzipFilter`, `Pipeline::filter`); `TeeFilter` deferred | 3 wks |
 | M3 | `s3` feature: S3Source/S3Sink; HTTP→S3 e2e test with minio in CI | 4 wks |
 | M4 | compat module `v2`, migration guide, docs, benchmark report | 2 wks |
 | — | buffer + release hardening | 2 wks |

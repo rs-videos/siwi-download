@@ -23,9 +23,13 @@
 //! # }
 //! ```
 
+pub mod filter;
 pub mod runner;
 pub mod source;
 
+#[cfg(feature = "gzip")]
+pub use filter::GunzipFilter;
+pub use filter::{ChecksumFilter, Filter};
 pub use runner::{Pipeline, PipelineOptions, PipelineReport};
 pub use source::{FileSource, HttpSource, HttpSourceOptions, Source, SourceMetadata};
 

@@ -18,8 +18,9 @@
 //! # }
 //! ```
 
+use super::filter::Filter;
 use super::source::{Source, SourceMetadata};
-use crate::download::engine::{self, PumpSpec};
+use crate::download::engine::{self, ChunkWriter, PumpSpec};
 use crate::download::events::{DownloadEvent, DownloadHook};
 use crate::download::{DownloadOptions, DownloadReport, DownloadStatus};
 use crate::error::AnyResult;
@@ -84,6 +85,7 @@ where
   source: S,
   sink: K,
   options: PipelineOptions,
+  filters: Vec<Box<dyn Filter>>,
 }
 
 impl<S, K> Pipeline<S, K>
@@ -97,7 +99,16 @@ where
       source,
       sink,
       options: PipelineOptions::default(),
+      filters: Vec::new(),
     }
+  }
+
+  /// Appends a filter stage. Filters run in registration order; a filter
+  /// error aborts the pipeline before the sink is finalized.
+  #[must_use]
+  pub fn filter(mut self, filter: Box<dyn Filter>) -> Self {
+    self.filters.push(filter);
+    self
   }
 
   /// Replaces the pipeline options.
@@ -144,7 +155,14 @@ where
       start_offset: self.options.resume_from,
       progress_bar: None,
     };
-    let outcome = engine::pump(&mut self.source, &mut self.sink, spec).await?;
+    let mut chain = FilterChain {
+      sink: &mut self.sink,
+      filters: &mut self.filters,
+      buf_in: Vec::new(),
+      buf_out: Vec::new(),
+    };
+    let outcome = engine::pump(&mut self.source, &mut chain, spec).await?;
+    chain.flush().await?;
     self.sink.finalize().await?;
 
     let report = PipelineReport {
@@ -184,5 +202,69 @@ where
     }
 
     Ok(report)
+  }
+}
+
+/// A [`ChunkWriter`] that pipes chunks through the filter chain before
+/// writing to the sink.
+///
+/// Two buffers ping-pong between filters; `flush` cascades each filter's
+/// tail through the remaining filters and finally into the sink. With no
+/// filters registered, chunks go straight to the sink.
+struct FilterChain<'a, K: crate::download::sink::StreamSink> {
+  sink: &'a mut K,
+  filters: &'a mut [Box<dyn Filter>],
+  /// Filter pipeline input buffer (swapped with `buf_out` after each stage).
+  buf_in: Vec<u8>,
+  /// Filter pipeline output buffer.
+  buf_out: Vec<u8>,
+}
+
+impl<K: crate::download::sink::StreamSink> ChunkWriter for FilterChain<'_, K> {
+  async fn write_chunk(&mut self, chunk: &[u8]) -> AnyResult<()> {
+    if self.filters.is_empty() {
+      return self.sink.write_chunk(chunk).await;
+    }
+    self.buf_in.clear();
+    self.buf_in.extend_from_slice(chunk);
+    for filter in self.filters.iter_mut() {
+      self.buf_out.clear();
+      filter.transform(&self.buf_in, &mut self.buf_out).await?;
+      std::mem::swap(&mut self.buf_in, &mut self.buf_out);
+    }
+    if !self.buf_in.is_empty() {
+      self.sink.write_chunk(&self.buf_in).await?;
+    }
+    Ok(())
+  }
+}
+
+impl<K: crate::download::sink::StreamSink> FilterChain<'_, K> {
+  /// Flushes every filter, cascading each tail through downstream stages.
+  async fn flush(&mut self) -> AnyResult<()> {
+    let n = self.filters.len();
+    for i in 0..n {
+      self.buf_out.clear();
+      {
+        let (_, tail) = self.filters.split_at_mut(i);
+        tail[0].flush(&mut self.buf_out).await?;
+      }
+      if self.buf_out.is_empty() {
+        continue;
+      }
+      std::mem::swap(&mut self.buf_in, &mut self.buf_out);
+      for j in (i + 1)..n {
+        self.buf_out.clear();
+        {
+          let (_, tail) = self.filters.split_at_mut(j);
+          tail[0].transform(&self.buf_in, &mut self.buf_out).await?;
+        }
+        std::mem::swap(&mut self.buf_in, &mut self.buf_out);
+      }
+      if !self.buf_in.is_empty() {
+        self.sink.write_chunk(&self.buf_in).await?;
+      }
+    }
+    Ok(())
   }
 }

@@ -151,10 +151,39 @@ pub struct HashSink {
 }
 
 #[derive(Debug)]
-enum Hasher {
+pub(crate) enum Hasher {
   Sha256(Sha256),
   Sha1(Sha1),
   Md5(Md5),
+}
+
+impl Hasher {
+  /// New hasher for `algo`.
+  pub(crate) fn new(algo: ChecksumAlgorithm) -> Self {
+    match algo {
+      ChecksumAlgorithm::Sha256 => Hasher::Sha256(Sha256::new()),
+      ChecksumAlgorithm::Sha1 => Hasher::Sha1(Sha1::new()),
+      ChecksumAlgorithm::Md5 => Hasher::Md5(Md5::new()),
+    }
+  }
+
+  /// Feeds bytes into the digest.
+  pub(crate) fn update(&mut self, chunk: &[u8]) {
+    match self {
+      Hasher::Sha256(h) => h.update(chunk),
+      Hasher::Sha1(h) => h.update(chunk),
+      Hasher::Md5(h) => h.update(chunk),
+    }
+  }
+
+  /// Consumes the hasher and returns the lowercase hex digest.
+  pub(crate) fn hex_digest(self) -> String {
+    match self {
+      Hasher::Sha256(h) => hex::encode(h.finalize()),
+      Hasher::Sha1(h) => hex::encode(h.finalize()),
+      Hasher::Md5(h) => hex::encode(h.finalize()),
+    }
+  }
 }
 
 impl HashSink {
@@ -188,10 +217,9 @@ impl HashSink {
   /// New sink for `algo`.
   #[must_use]
   pub fn new(algo: ChecksumAlgorithm) -> Self {
-    match algo {
-      ChecksumAlgorithm::Sha256 => Self::sha256(),
-      ChecksumAlgorithm::Sha1 => Self::sha1(),
-      ChecksumAlgorithm::Md5 => Self::md5(),
+    Self {
+      inner: Hasher::new(algo),
+      digest_hex: None,
     }
   }
 
@@ -216,11 +244,7 @@ impl HashSink {
 impl StreamSink for HashSink {
   #[allow(clippy::unused_async)]
   async fn write_chunk(&mut self, chunk: &[u8]) -> AnyResult<()> {
-    match &mut self.inner {
-      Hasher::Sha256(h) => h.update(chunk),
-      Hasher::Sha1(h) => h.update(chunk),
-      Hasher::Md5(h) => h.update(chunk),
-    }
+    self.inner.update(chunk);
     Ok(())
   }
 
@@ -231,12 +255,8 @@ impl StreamSink for HashSink {
     if self.digest_hex.is_some() {
       return Ok(());
     }
-    let hex_digest = match &mut self.inner {
-      Hasher::Sha256(h) => hex::encode(std::mem::take(h).finalize()),
-      Hasher::Sha1(h) => hex::encode(std::mem::take(h).finalize()),
-      Hasher::Md5(h) => hex::encode(std::mem::take(h).finalize()),
-    };
-    self.digest_hex = Some(hex_digest);
+    let hasher = std::mem::replace(&mut self.inner, Hasher::Sha256(Sha256::new()));
+    self.digest_hex = Some(hasher.hex_digest());
     Ok(())
   }
 }
@@ -302,19 +322,13 @@ impl StreamSink for StdoutSink {
   }
 }
 
-/// Decompresses a gzip stream on the fly and forwards the plain bytes to an
-/// inner sink — download and extract in one pass, no intermediate file.
+/// Streaming gzip decoder state machine (RFC 1952), driven synchronously.
 ///
-/// Supports multi-member streams (concatenated `.gz` files) and verifies
-/// each member's CRC32/length trailer. Requires the `gzip` feature.
-///
-/// Implementation note: flate2's `read::MultiGzDecoder` cannot feed a
-/// growing buffer (it reports any temporary input exhaustion as a hard
-/// error), so this sink drives `flate2::Decompress` in raw-deflate mode and
-/// parses the RFC 1952 header/trailer framing itself.
+/// Used by [`GunzipSink`] and by the 3.0 `GunzipFilter`; keeping the state
+/// machine free of I/O lets both share one implementation.
 #[cfg(feature = "gzip")]
-pub struct GunzipSink<S: StreamSink> {
-  inner: S,
+#[derive(Debug)]
+pub(crate) struct GunzipDecoder {
   /// Compressed bytes not yet consumed by the current phase.
   pending: Vec<u8>,
   /// Raw-deflate decompressor for the current member.
@@ -327,10 +341,11 @@ pub struct GunzipSink<S: StreamSink> {
   scratch: Vec<u8>,
 }
 
+/// One phase of the RFC 1952 member state machine.
 #[cfg(feature = "gzip")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GzPhase {
-  /// Reading the RFC 1952 member header.
+  /// Reading the member header.
   Header,
   /// Inflating the raw deflate payload.
   Deflate,
@@ -350,11 +365,10 @@ const GZ_FHCRC: u8 = 0x02;
 const GZ_TRAILER_LEN: usize = 8;
 
 #[cfg(feature = "gzip")]
-impl<S: StreamSink> GunzipSink<S> {
-  /// New gunzip wrapper around `inner`.
-  pub fn new(inner: S) -> Self {
+impl GunzipDecoder {
+  /// Fresh decoder, ready for the first member header.
+  pub(crate) fn new() -> Self {
     Self {
-      inner,
       pending: Vec::new(),
       de: Decompress::new(false),
       crc: Crc::new(),
@@ -364,14 +378,37 @@ impl<S: StreamSink> GunzipSink<S> {
     }
   }
 
-  /// Access to the inner sink.
-  pub fn inner(&self) -> &S {
-    &self.inner
+  /// Feeds compressed bytes; decoded plain bytes are appended to `out`.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error on malformed gzip framing or data.
+  pub(crate) fn feed(&mut self, chunk: &[u8], out: &mut Vec<u8>) -> AnyResult<()> {
+    self.pending.extend_from_slice(chunk);
+    self.pump(out)
   }
 
-  /// Advances the state machine over buffered input, forwarding decoded
-  /// bytes to `inner`.
-  async fn pump(&mut self) -> AnyResult<()> {
+  /// Flushes the final trailer state.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error when the stream is truncated (no complete member, or
+  /// trailing bytes mid-structure).
+  pub(crate) fn finish(&mut self, out: &mut Vec<u8>) -> AnyResult<()> {
+    self.pump(out)?;
+    if self.members_done == 0 || self.phase != GzPhase::Header || !self.pending.is_empty() {
+      return Err(anyhow::anyhow!(
+        "incomplete gzip stream ({} member(s) verified, phase {:?}, {} trailing bytes)",
+        self.members_done,
+        self.phase,
+        self.pending.len()
+      ));
+    }
+    Ok(())
+  }
+
+  /// Advances the state machine over buffered input.
+  fn pump(&mut self, out: &mut Vec<u8>) -> AnyResult<()> {
     loop {
       match self.phase {
         GzPhase::Header => {
@@ -392,8 +429,6 @@ impl<S: StreamSink> GunzipSink<S> {
           let (status, produced) = {
             let input = self.pending.as_slice();
             let scratch = &mut self.scratch;
-            // Disjoint borrows via field split; `decompress` reads `input`
-            // and writes `scratch`.
             let status = self.de.decompress(input, scratch, FlushDecompress::None)?;
             let produced = usize::try_from(self.de.total_out() - before_out).unwrap_or(usize::MAX);
             (status, produced)
@@ -402,7 +437,7 @@ impl<S: StreamSink> GunzipSink<S> {
           self.pending.drain(..consumed);
           if produced > 0 {
             self.crc.update(&self.scratch[..produced]);
-            self.inner.write_chunk(&self.scratch[..produced]).await?;
+            out.extend_from_slice(&self.scratch[..produced]);
           }
           match status {
             Status::StreamEnd => self.phase = GzPhase::Trailer,
@@ -498,26 +533,51 @@ fn gzip_header_len(buf: &[u8]) -> AnyResult<Option<usize>> {
   Ok(Some(p))
 }
 
+/// Decompresses a gzip stream on the fly and forwards the plain bytes to an
+/// inner sink — download and extract in one pass, no intermediate file.
+///
+/// Supports multi-member streams (concatenated `.gz` files) and verifies
+/// each member's CRC32/length trailer. Requires the `gzip` feature.
+#[cfg(feature = "gzip")]
+pub struct GunzipSink<S: StreamSink> {
+  inner: S,
+  decoder: GunzipDecoder,
+  scratch: Vec<u8>,
+}
+
+#[cfg(feature = "gzip")]
+impl<S: StreamSink> GunzipSink<S> {
+  /// New gunzip wrapper around `inner`.
+  pub fn new(inner: S) -> Self {
+    Self {
+      inner,
+      decoder: GunzipDecoder::new(),
+      scratch: Vec::new(),
+    }
+  }
+
+  /// Access to the inner sink.
+  pub fn inner(&self) -> &S {
+    &self.inner
+  }
+}
+
 #[cfg(feature = "gzip")]
 impl<S: StreamSink> StreamSink for GunzipSink<S> {
   async fn write_chunk(&mut self, chunk: &[u8]) -> AnyResult<()> {
-    self.pending.extend_from_slice(chunk);
-    self.pump().await
+    self.scratch.clear();
+    self.decoder.feed(chunk, &mut self.scratch)?;
+    if !self.scratch.is_empty() {
+      self.inner.write_chunk(&self.scratch).await?;
+    }
+    Ok(())
   }
 
   async fn finalize(&mut self) -> AnyResult<()> {
-    self.pump().await?;
-    // Exactly one of these must hold for a well-formed stream:
-    // - the last member's trailer was verified (phase wrapped to Header and
-    //   no bytes followed), or
-    // - nothing is pending mid-structure.
-    if self.members_done == 0 || self.phase != GzPhase::Header || !self.pending.is_empty() {
-      return Err(anyhow::anyhow!(
-        "incomplete gzip stream ({} member(s) verified, phase {:?}, {} trailing bytes)",
-        self.members_done,
-        self.phase,
-        self.pending.len()
-      ));
+    self.scratch.clear();
+    self.decoder.finish(&mut self.scratch)?;
+    if !self.scratch.is_empty() {
+      self.inner.write_chunk(&self.scratch).await?;
     }
     self.inner.finalize().await?;
     Ok(())

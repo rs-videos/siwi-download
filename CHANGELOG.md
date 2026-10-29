@@ -10,7 +10,30 @@ and may be incomplete.
 
 ## [Unreleased]
 
-_No unreleased changes yet._
+### Added
+
+Roadmap 3.0 M2 — filters (see `docs/design/30-pipeline.md`):
+
+- New `pipeline::filter` module behind the `unstable` feature:
+  - `Filter` trait (object-safe, boxed futures): `transform(chunk, out)`
+    plus `flush(out)`; chunks flow through filters in registration order
+    and a filter error aborts the pipeline **before** the sink finalizes.
+  - `ChecksumFilter`: verifies SHA-256/SHA-1/MD5 while streaming and
+    aborts on mismatch; a pass-through, so placing it after a decompressor
+    verifies the plain payload.
+  - `GunzipFilter` (requires `gzip`): in-flight decompression with
+    multi-member support and CRC32/ISIZE trailer verification.
+- `Pipeline::filter(Box<dyn Filter>)`: composes filter stages; internal
+  `FilterChain` ping-pongs two buffers between stages and cascades each
+  filter's flush output through the remaining stages into the sink.
+- `GunzipSink` internals refactored onto a synchronous `GunzipDecoder`
+  state machine shared with `GunzipFilter` (one implementation, no I/O in
+  the state machine) — existing sink behavior and tests unchanged.
+- `Hasher` in `download::sink` gains `new/update/hex_digest` helpers,
+  reused by `HashSink` and `ChecksumFilter`.
+
+Deferred to a later M2 slice: `TeeFilter` (branching streams), S3
+sources/sinks (M3).
 
 ## [2.5.0] - 2026-09-17
 

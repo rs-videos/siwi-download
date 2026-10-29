@@ -181,3 +181,95 @@ async fn test_pipeline_metadata_reports_etag_and_length() -> AnyResult<()> {
   assert_eq!(meta.etag.as_deref(), Some("\"abc123\""));
   Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// M2: filters
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_pipeline_gunzip_filter_decodes_to_sink() -> AnyResult<()> {
+  use siwi_download::pipeline::{Filter, GunzipFilter};
+  use std::io::Write as _;
+
+  let dir = tempdir()?;
+  let plain: Vec<u8> = (0..80_000u32).map(|i| (i % 251) as u8).collect();
+  let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+  enc.write_all(&plain)?;
+  let gz = enc.finish()?;
+  let path = dir.path().join("data.bin.gz");
+  std::fs::write(&path, &gz)?;
+
+  // Keep a pointer to the sink's contents after the pipeline consumes it by
+  // value: use a shared buffer sink instead of MemorySink.
+  struct SharedSink(Arc<std::sync::Mutex<Vec<u8>>>);
+  impl siwi_download::download::sink::StreamSink for SharedSink {
+    async fn write_chunk(&mut self, chunk: &[u8]) -> AnyResult<()> {
+      self.0.lock().unwrap().extend_from_slice(chunk);
+      Ok(())
+    }
+  }
+
+  let shared = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let sink = SharedSink(shared.clone());
+  let report = Pipeline::new(FileSource::new(&path), sink)
+    .filter(Box::new(GunzipFilter::new()) as Box<dyn Filter>)
+    .run()
+    .await?;
+
+  assert_eq!(
+    report.bytes_written,
+    gz.len() as u64,
+    "compressed bytes read"
+  );
+  assert_eq!(plain, *shared.lock().unwrap(), "sink receives plain bytes");
+  Ok(())
+}
+
+#[tokio::test]
+async fn test_pipeline_checksum_filter_verifies_plain_payload() -> AnyResult<()> {
+  use sha2::{Digest as _, Sha256};
+  use siwi_download::pipeline::{ChecksumFilter, Filter, GunzipFilter};
+  use std::io::Write as _;
+
+  let dir = tempdir()?;
+  let plain = b"filtered checksum payload";
+  let expected = hex::encode(Sha256::digest(plain));
+  let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+  enc.write_all(plain)?;
+  let gz = enc.finish()?;
+  let path = dir.path().join("payload.gz");
+  std::fs::write(&path, &gz)?;
+
+  // Order: gunzip first, then checksum — so the checksum covers the PLAIN
+  // bytes, proving filters run in registration order.
+  let report = Pipeline::new(FileSource::new(&path), MemorySink::default())
+    .filter(Box::new(GunzipFilter::new()) as Box<dyn Filter>)
+    .filter(Box::new(ChecksumFilter::new(
+      siwi_download::download::Algorithm::Sha256,
+      expected,
+    )) as Box<dyn Filter>)
+    .run()
+    .await?;
+  assert_eq!(report.bytes_written, gz.len() as u64);
+  Ok(())
+}
+
+#[tokio::test]
+async fn test_pipeline_checksum_filter_mismatch_fails_before_finalize() -> AnyResult<()> {
+  use siwi_download::pipeline::{ChecksumFilter, Filter};
+
+  let dir = tempdir()?;
+  let path = dir.path().join("plain.bin");
+  std::fs::write(&path, b"some bytes")?;
+
+  let result = Pipeline::new(FileSource::new(&path), MemorySink::default())
+    .filter(Box::new(ChecksumFilter::new(
+      siwi_download::download::Algorithm::Sha256,
+      "0".repeat(64),
+    )) as Box<dyn Filter>)
+    .run()
+    .await;
+  let err = result.expect_err("checksum mismatch must abort the pipeline");
+  assert!(err.to_string().contains("checksum mismatch"), "{err}");
+  Ok(())
+}
