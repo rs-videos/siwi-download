@@ -30,6 +30,7 @@
 
 pub mod checksum;
 pub mod client;
+pub(crate) mod engine;
 pub mod events;
 pub mod observability;
 pub mod options;
@@ -52,11 +53,10 @@ use crate::{
 use chrono::{DateTime, Utc};
 use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 use reqwest::header::CONTENT_LENGTH;
-use reqwest::header::{HeaderMap, HeaderValue, IF_MODIFIED_SINCE, IF_NONE_MATCH, RANGE};
+use reqwest::header::{HeaderValue, IF_MODIFIED_SINCE, IF_NONE_MATCH, RANGE};
 use std::fmt::Write;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Instant;
 use tokio::{
   fs,
   io::AsyncWriteExt,
@@ -93,7 +93,7 @@ fn is_acceptable_status(status: u16) -> bool {
 
 /// Formats a timestamp as an HTTP-date (IMF-fixdate, RFC 9110 §5.6.7),
 /// e.g. `Sun, 06 Nov 1994 08:49:37 GMT`.
-fn format_http_date(dt: DateTime<Utc>) -> String {
+pub(crate) fn format_http_date(dt: DateTime<Utc>) -> String {
   dt.format("%a, %d %b %Y %H:%M:%S GMT").to_string()
 }
 
@@ -101,7 +101,10 @@ fn format_http_date(dt: DateTime<Utc>) -> String {
 ///
 /// The first hook that returns an error aborts the download: the error is
 /// propagated to the caller and no further hooks (or events) run.
-fn dispatch_hooks(hooks: &[Arc<dyn DownloadHook>], event: &DownloadEvent<'_>) -> AnyResult<()> {
+pub(crate) fn dispatch_hooks(
+  hooks: &[Arc<dyn DownloadHook>],
+  event: &DownloadEvent<'_>,
+) -> AnyResult<()> {
   for hook in hooks {
     hook.on_event(event.clone())?;
   }
@@ -239,11 +242,7 @@ impl Download {
     report.set_range_from(local_size).set_download_start_at();
 
     // Build the Range header for resuming.
-    let mut headers = match options.maybe_headers {
-      Some(headers) => headers,
-      None => HeaderMap::new(),
-    };
-    let cancel_flag = options.cancel.clone();
+    let mut headers = options.maybe_headers.clone().unwrap_or_default();
     let range = format!("bytes={local_size}-");
     headers.insert(RANGE, HeaderValue::from_str(&range)?);
 
@@ -405,65 +404,8 @@ impl Download {
       report.set_download_status(DownloadStatus::Create);
     }
 
-    let download_started = Instant::now();
-    let mut last_progress: Option<Instant> = None;
-    let mut written_since_start: u64 = 0;
-    while let Some(chunk) = resp.chunk().await? {
-      if cancel_flag
-        .as_ref()
-        .is_some_and(|f| f.load(std::sync::atomic::Ordering::Relaxed))
-      {
-        info!(
-          "download cancelled after {} bytes",
-          local_size + written_since_start
-        );
-        break;
-      }
-      let offset = local_size + written_since_start;
-      dest.write_all(&chunk).await?;
-      written_since_start += chunk.len() as u64;
-
-      dispatch_hooks(
-        &options.hooks,
-        &DownloadEvent::ChunkWritten {
-          offset,
-          len: chunk.len(),
-        },
-      )?;
-
-      // Coarse progress events, rate-limited so slow hooks and log spam
-      // cannot fire once per chunk.
-      let now = Instant::now();
-      let due = last_progress.is_none_or(|t| now.duration_since(t) >= events::PROGRESS_INTERVAL);
-      if due {
-        dispatch_hooks(
-          &options.hooks,
-          &DownloadEvent::Progress {
-            downloaded: local_size + written_since_start,
-            total: Some(total),
-          },
-        )?;
-        last_progress = Some(now);
-      }
-
-      // Average-speed cap: if we are ahead of the allowed pace, sleep the
-      // difference so the average never exceeds `max_speed`.
-      if let Some(max_speed) = options.max_speed
-        && max_speed > 0
-      {
-        // f64 is exact for byte counts below 2^53 — far beyond any real
-        // download — so the precision-loss casts are safe here.
-        #[allow(clippy::cast_precision_loss)]
-        let allowed_elapsed = written_since_start as f64 / max_speed as f64;
-        let ahead_secs = allowed_elapsed - download_started.elapsed().as_secs_f64();
-        if ahead_secs > 0.0 {
-          sleep(Duration::from_secs_f64(ahead_secs)).await;
-        }
-      }
-      if let Some(pb) = pb.as_ref() {
-        pb.inc(chunk.len() as u64);
-      }
-    }
+    let pump_spec = engine::PumpSpec::new(&options, Some(total), local_size, pb.as_ref());
+    let outcome = engine::pump(&mut resp, &mut dest, pump_spec).await?;
 
     // Flush to ensure all data is written to disk.
     dest.flush().await?;
@@ -471,10 +413,7 @@ impl Download {
       pb.finish();
     }
 
-    if cancel_flag
-      .as_ref()
-      .is_some_and(|f| f.load(std::sync::atomic::Ordering::Relaxed))
-    {
+    if outcome.cancelled {
       report
         .set_download_status(DownloadStatus::Error)
         .set_download_end_at()
@@ -682,14 +621,10 @@ impl Download {
 
     report.set_range_from(0).set_download_start_at();
 
-    let headers = match options.maybe_headers {
-      Some(headers) => headers,
-      None => HeaderMap::new(),
-    };
+    let headers = options.maybe_headers.clone().unwrap_or_default();
     report.set_headers(headers.clone());
 
     let client = client::build_client(options.maybe_proxy.as_deref(), headers)?;
-    let cancel_flag = options.cancel.clone();
 
     dispatch_hooks(
       &options.hooks,
@@ -736,68 +671,16 @@ impl Download {
       None
     };
 
-    let download_started = Instant::now();
-    let mut last_progress: Option<Instant> = None;
-    let mut processed: u64 = 0;
-    while let Some(chunk) = resp.chunk().await? {
-      if cancel_flag
-        .as_ref()
-        .is_some_and(|f| f.load(std::sync::atomic::Ordering::Relaxed))
-      {
-        info!("stream cancelled after {processed} bytes");
-        break;
-      }
-      sink.write_chunk(&chunk).await?;
-      processed += chunk.len() as u64;
-
-      dispatch_hooks(
-        &options.hooks,
-        &DownloadEvent::ChunkWritten {
-          offset: processed - chunk.len() as u64,
-          len: chunk.len(),
-        },
-      )?;
-
-      let now = Instant::now();
-      let due = last_progress.is_none_or(|t| now.duration_since(t) >= events::PROGRESS_INTERVAL);
-      if due {
-        dispatch_hooks(
-          &options.hooks,
-          &DownloadEvent::Progress {
-            downloaded: processed,
-            total,
-          },
-        )?;
-        last_progress = Some(now);
-      }
-
-      if let Some(max_speed) = options.max_speed
-        && max_speed > 0
-      {
-        // f64 is exact for byte counts below 2^53 — far beyond any real
-        // download — so the precision-loss casts are safe here.
-        #[allow(clippy::cast_precision_loss)]
-        let allowed_elapsed = processed as f64 / max_speed as f64;
-        let ahead_secs = allowed_elapsed - download_started.elapsed().as_secs_f64();
-        if ahead_secs > 0.0 {
-          sleep(Duration::from_secs_f64(ahead_secs)).await;
-        }
-      }
-      if let Some(pb) = pb.as_ref() {
-        pb.inc(chunk.len() as u64);
-      }
-    }
+    let pump_spec = engine::PumpSpec::new(&options, total, 0, pb.as_ref());
+    let outcome = engine::pump(&mut resp, sink, pump_spec).await?;
+    let processed = outcome.written;
 
     sink.finalize().await?;
     if let Some(pb) = pb {
       pb.finish();
     }
 
-    if options
-      .cancel
-      .as_ref()
-      .is_some_and(|f| f.load(std::sync::atomic::Ordering::Relaxed))
-    {
+    if outcome.cancelled {
       report
         .set_file_size(processed)
         .set_download_status(DownloadStatus::Error)

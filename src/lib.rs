@@ -68,4 +68,6 @@
 
 pub mod download;
 pub mod error;
+#[cfg(feature = "unstable")]
+pub mod pipeline;
 pub mod utils;

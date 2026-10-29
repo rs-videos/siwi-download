@@ -508,7 +508,7 @@ mod tests {
       .output("./out");
     assert_eq!(t.maybe_file_name.as_deref(), Some("a.bin"));
     assert_eq!(t.maybe_output.as_deref(), Some("./out"));
-    assert!(t.depends_on.is_empty());
+    assert_eq!(0, t.depends_on.len());
   }
 
   #[test]

@@ -1,6 +1,6 @@
 # RFC: 3.0 Pipeline Architecture — Source → Filter → Sink
 
-- **Status**: Draft for discussion
+- **Status**: M1 implemented behind the `unstable` feature (v2.5.0)
 - **Target version**: 3.0.0
 - **Related ADRs**: 001 (no sharding), 002 (no P2P), 003 (trait-object hooks), 004 (pipeline at 3.0), 005 (sync hooks)
 - **Discuss**: open an issue tagged `roadmap-discussion` referencing this file
@@ -58,10 +58,17 @@ pub trait Source: Send {
     /// Probe without transferring (HEAD / S3 HeadObject).
     async fn metadata(&self) -> AnyResult<SourceMetadata>;
 
-    /// The byte stream. Implementations should be resumable-aware:
-    /// `range_from` > 0 asks the source to start mid-object when it can.
-    async fn chunks(&mut self, range_from: u64)
-        -> AnyResult<impl Stream<Item = AnyResult<Bytes>> + Send + '_>;
+    /// Prepares the transfer. `range_from > 0` asks the source to start
+    /// mid-object when it can.
+    async fn open(&mut self, range_from: u64) -> AnyResult<()>;
+
+    /// Pull-based iteration: `None` marks end of stream.
+    ///
+    /// (An earlier draft returned `impl Stream`; nested `impl Trait` is not
+    /// expressible in RPITIT trait methods, and boxing a stream for every
+    /// source buys nothing over a pull loop. Pull-based iteration also
+    /// keeps the trait `Send` and spawn-friendly.)
+    async fn next_chunk(&mut self) -> AnyResult<Option<Bytes>>;
 }
 ```
 
@@ -132,6 +139,19 @@ sequence, adding `Stage { name, started, finished }` metadata to
 `HeadersReceived`-equivalent events where useful. `cancel: Arc<AtomicBool>`
 stays the cancellation mechanism (checked between chunks/filters).
 
+## 4.6 Implementation Notes (M1, as built)
+
+- The transfer loop lives in a shared `download::engine` (`ChunkSource` /
+  `ChunkWriter` + `pump`), consumed by `download()`, `stream()`, and the
+  pipeline alike. The M1 refactor removed two copies of the event /
+  rate-limit / cancel / progress-bar loop.
+- The public pipeline surface is compiled only with the `unstable`
+  feature; the engine itself is unconditional so 2.x code paths benefit.
+- `Sink` is a re-export of the 2.2 `StreamSink` trait (same shape); the
+  rename to its own trait happens in M4 when the compat module lands.
+- `SourceMetadata.content_length` is the full payload size; the probe runs
+  without a Range header, so the runner uses it as `total` directly.
+
 ## 5. Migration Path
 
 ```rust
@@ -156,7 +176,7 @@ let report = Pipeline::new(HttpSource::new(url), FileSink::create(path).await?)
 
 | # | Scope | Est. |
 |---|---|---|
-| M1 | `Source`/`Sink` traits + `HttpSource`/`FileSink` + runner; `download()` refactored onto it; benchmarks green | 5 wks |
+| M1 | `Source`/`Sink` traits + `HttpSource`/`FileSource`/`FileSink` + runner; `download()`/`stream()` refactored onto the shared engine; benchmarks green | ✅ done (v2.5.0, `unstable`) |
 | M2 | `Filter` trait + Gunzip/Checksum/Tee migration; `stream()` refactored onto it | 3 wks |
 | M3 | `s3` feature: S3Source/S3Sink; HTTP→S3 e2e test with minio in CI | 4 wks |
 | M4 | compat module `v2`, migration guide, docs, benchmark report | 2 wks |

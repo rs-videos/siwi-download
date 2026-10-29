@@ -47,8 +47,10 @@ jobs:
           components: clippy
       - name: Cache cargo registry & target
         uses: Swatinem/rust-cache@v2
-      - name: cargo clippy
+      - name: cargo clippy (default features)
         run: cargo clippy --all-targets -- -D warnings
+      - name: cargo clippy (all features)
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
   test:
     name: test (${{ matrix.os }} / rust-${{ matrix.rust }})
