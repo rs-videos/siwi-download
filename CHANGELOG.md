@@ -8,6 +8,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Entries for versions prior to `2.0.0` were reconstructed from the git history
 and may be incomplete.
 
+## [Unreleased]
+
+_No unreleased changes yet._
+
+## [2.5.0] - 2026-09-17
+
+### Added
+
+Roadmap 3.0 M1 — shared transfer engine + `unstable` pipeline API
+(see `docs/design/30-pipeline.md`):
+
+- New `download::engine` (crate-internal): one pull-based byte pump
+  (`ChunkSource` / `ChunkWriter` traits + `pump`) now backs
+  `Download::download`, `Download::stream`, and the pipeline — the two
+  duplicated event/rate-limit/cancel/progress loops are gone.
+- New `pipeline` module behind the **`unstable`** feature:
+  - `Source` trait (metadata / open(range_from) / next_chunk),
+    `SourceMetadata`
+  - `HttpSource` (probe with bounded retry + conditional headers),
+    `FileSource` (with seek-based resume)
+  - `Sink` = re-export of the 2.2 `StreamSink`; all built-in sinks usable
+  - `Pipeline::new(source, sink).options(..).run()` emitting the same
+    lifecycle events as single downloads; `PipelineReport` with
+    bytes/resume/etag/last-modified/cancelled
+- `HttpSourceOptions` exposes retry delay/retry budget for tests.
+- CI clippy now also runs with `--all-features`.
+
+## [2.4.0] - 2026-09-17
+
+### Added
+
+Roadmap 2.4 "observability & production readiness" (see `docs/ROADMAP.md`):
+
+- New `download::observability` module, both pieces implemented as plain
+  `DownloadHook`s so they compose with the existing hook system:
+  - `Metrics`: lock-free atomic counters (complete/not-complete downloads,
+    bytes written, resume bytes, probe retries, cumulative duration) with
+    `render_prometheus()` producing Prometheus text exposition format.
+  - `AccessLogHook`: one JSON line per terminal download outcome
+    (ts/url/file_path/status/size/resumed/time_used/msg), to a file or
+    stderr. Observability hooks never fail the download.
+- `DownloadEvent::Retry { attempt, status }` — emitted on every probe
+  retry; backs the `siwi_download_retries_total` metric.
+- Cooperative cancellation: `DownloadOptions::set_cancel(Arc<AtomicBool>)`.
+  When set, both `download()` and `stream()` stop after the current chunk,
+  flush, and return an Error report with msg "cancelled" — partial bytes
+  stay on disk and remain resumable. The CLI wires this to Ctrl+C.
+- `Download::probe(url, options)`: HEAD-only dry-run with the same
+  resume/conditional headers, status mapping, and bounded retry as
+  `download()`; never touches the local file.
+- CLI: `--dry-run` (probe and print; nothing lands on disk),
+  `--metrics-file <path>`, `--access-log <path>`. Ctrl+C now triggers the
+  cooperative cancel path ("finishing current chunk, progress is
+  resumable").
+
 ## [2.3.0] - 2026-09-16
 
 ### Added
@@ -289,7 +344,11 @@ A maintenance and hardening release. The public API was simplified, the
 - `Cow<'a, str>` used for lifetime-efficient string handling in the API.
 
 <!-- Link references -->
-[Unreleased]: https://github.com/rs-videos/siwi-download/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/rs-videos/siwi-download/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/rs-videos/siwi-download/compare/v2.4.0...v2.5.0
+[2.4.0]: https://github.com/rs-videos/siwi-download/compare/v2.3.0...v2.4.0
+[2.3.0]: https://github.com/rs-videos/siwi-download/compare/v2.2.0...v2.3.0
+[2.2.0]: https://github.com/rs-videos/siwi-download/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/rs-videos/siwi-download/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/rs-videos/siwi-download/compare/v1.0.1...v2.0.0
 [1.0.1]: https://github.com/rs-videos/siwi-download/compare/v1.0.0...v1.0.1
