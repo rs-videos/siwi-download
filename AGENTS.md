@@ -5,7 +5,7 @@ Guidelines for AI agents (and human contributors) working on this codebase.
 ## Project at a Glance
 
 - **What**: async file downloader with breakpoint continuation, built on Tokio + Reqwest.
-- **Version**: 2.0.0 (see `CHANGELOG.md`).
+- **Version**: 2.7.0 (see `CHANGELOG.md`).
 - **Edition**: Rust 2024.
 - **MSRV**: `1.85` (declared as `rust-version` in `Cargo.toml`).
 - **Toolchain**: `stable`, pinned via `rust-toolchain.toml`.
@@ -60,7 +60,15 @@ src/
     ├── events.rs       DownloadEvent/DownloadHook lifecycle hooks
     ├── sink.rs         StreamSink + File/Memory/Hash/Tee/Stdout/Gunzip sinks
     ├── queue.rs        DownloadQueue: batch orchestration, deps, state files
+    ├── observability.rs Metrics (Prometheus) + AccessLogHook
+    ├── engine.rs       shared transfer pump (ChunkSource/ChunkWriter)
     └── client.rs       build_client() helper (shared timeouts/proxy policy)
+
+pipeline/               (feature `unstable`) 3.0 Source→Filter→Sink
+├── source.rs           Source/HttpSource/FileSource
+├── filter.rs           Filter/Checksum/Gunzip/Tee
+├── runner.rs           Pipeline/FilteredSink
+└── s3.rs               S3Source/S3Sink (feature `s3`, SigV4, no AWS SDK)
 
 examples/
 ├── cli.rs              CLI usage example

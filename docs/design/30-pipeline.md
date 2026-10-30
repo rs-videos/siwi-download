@@ -1,7 +1,7 @@
 # RFC: 3.0 Pipeline Architecture — Source → Filter → Sink
 
-- **Status**: M1 shipped in v2.5.0; M2 slice 1 (filters) landed behind
-  the `unstable` feature
+- **Status**: M1 (v2.5.0) and M2 (v2.6.0) shipped; M3 (S3, v2.7.0)
+  shipped behind `unstable` + `s3`
 - **Target version**: 3.0.0
 - **Related ADRs**: 001 (no sharding), 002 (no P2P), 003 (trait-object hooks), 004 (pipeline at 3.0), 005 (sync hooks)
 - **Discuss**: open an issue tagged `roadmap-discussion` referencing this file
@@ -157,6 +157,14 @@ stays the cancellation mechanism (checked between chunks/filters).
   generic. `FilterCore` shares the ping-pong buffering and flush cascading
   between the runner and `FilteredSink`, so `Download::stream` gains filter
   support through a sink adapter rather than new core-API surface.
+- M3 as-built (**ADR-007 revised**): `aws-sdk-s3` was dropped before
+  implementation — it pulls a large tree and pressures the MSRV. The `s3`
+  feature adds only `hmac` and implements `HeadObject`/`GetObject`/
+  `PutObject` with SigV4 header auth over plain HTTP. The signer matches
+  two official AWS S3 test vectors byte-for-byte; e2e coverage uses an
+  in-process mock S3, so CI needs no minio. `S3Sink` performs a single
+  `PutObject` from a bounded in-memory spool (64 MiB default); multipart
+  streaming upload is deferred to a later minor (candidate ADR for 3.1).
 
 ## 5. Migration Path
 
@@ -184,7 +192,7 @@ let report = Pipeline::new(HttpSource::new(url), FileSink::create(path).await?)
 |---|---|---|
 | M1 | `Source`/`Sink` traits + `HttpSource`/`FileSource`/`FileSink` + runner; `download()`/`stream()` refactored onto the shared engine; benchmarks green | ✅ done (v2.5.0, `unstable`) |
 | M2 | `Filter` trait + Gunzip/Checksum/Tee migration; `stream()` refactored onto it — ✅ done (v2.6.0): `Filter`, `ChecksumFilter`, `GunzipFilter`, `TeeFilter`, `Pipeline::filter`, and `FilteredSink` (stream() adopts filters via the adapter, keeping the core API free of pipeline types) | 3 wks |
-| M3 | `s3` feature: S3Source/S3Sink; HTTP→S3 e2e test with minio in CI | 4 wks |
+| M3 | `s3` feature: `S3Source`/`S3Sink`; HTTP→S3 e2e against an in-process mock S3 (minio not required) — ✅ done (v2.7.0), see ADR-009 | 4 wks |
 | M4 | compat module `v2`, migration guide, docs, benchmark report | 2 wks |
 | — | buffer + release hardening | 2 wks |
 

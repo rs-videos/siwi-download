@@ -25,12 +25,16 @@
 
 pub mod filter;
 pub mod runner;
+#[cfg(feature = "s3")]
+pub mod s3;
 pub mod source;
 
 #[cfg(feature = "gzip")]
 pub use filter::GunzipFilter;
 pub use filter::{ChecksumFilter, Filter, TeeFilter};
 pub use runner::{FilteredSink, Pipeline, PipelineOptions, PipelineReport};
+#[cfg(feature = "s3")]
+pub use s3::{S3Config, S3Sink, S3Source};
 pub use source::{FileSource, HttpSource, HttpSourceOptions, Source, SourceMetadata};
 
 /// The pipeline's sink contract.

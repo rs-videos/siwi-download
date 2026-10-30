@@ -12,7 +12,7 @@ name = "siwi-download"
 readme = "README.md"
 repository = "https://github.com/rs-videos/siwi-download.git"
 rust-version = "1.85"
-version = "2.6.0"
+version = "2.7.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [package.metadata.docs.rs]
@@ -23,6 +23,8 @@ rustdoc-args = ["--cfg", "feature=\"docs\""]
 default = []
 # gzip decompression for GunzipSink (streaming "download-and-extract").
 gzip = ["dep:flate2"]
+# S3 sources/sinks over plain HTTP + SigV4 (pipeline; requires `unstable`).
+s3 = ["dep:hmac", "unstable"]
 docs = ["unstable"]
 unstable = []
 
@@ -35,6 +37,7 @@ digest = "0.10"
 dirs = "6"
 flate2 = {version = "1", optional = true}
 hex = "0.4"
+hmac = {version = "0.12", optional = true}
 indicatif = "0.18"
 md-5 = "0.10"
 reqwest = {version = "0.13", default-features = false, features = [

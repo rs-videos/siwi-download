@@ -12,6 +12,28 @@ and may be incomplete.
 
 _No unreleased changes yet._
 
+## [2.7.0] - 2026-10-31
+
+### Added
+
+Roadmap 3.0 M3 — S3 source/sink (see `docs/design/30-pipeline.md`):
+
+- `S3Source` / `S3Sink` behind the new `s3` feature (which implies
+  `unstable`). ADR-007 revised: instead of `aws-sdk-s3` (heavy tree, MSRV
+  pressure) the feature adds only `hmac` and implements `HeadObject` /
+  `GetObject` / `PutObject` over plain HTTP with SigV4 header auth —
+  path-style and virtual-host addressing, session tokens, Range resume.
+- SigV4 signer verified against **two official AWS S3 test vectors**
+  (GET-with-Range and PUT-with-payload-and-storage-class signatures match
+  the documented hex values byte-for-byte).
+- `S3Sink` spools to memory (default 64 MiB, `max_buffer()` to tune) and
+  performs one `PutObject` with an exact payload hash; exceeding the
+  ceiling fails instead of spilling to disk. Multipart upload is deferred.
+- Integration tests against an in-process mock S3: object download +
+  metadata, Range resume, HTTP → S3 direct transfer (asserts no local
+  files, path-style paths, and signed-header presence), buffer ceiling,
+  addressing styles.
+
 ## [2.6.0] - 2026-10-31
 
 ### Added
@@ -378,7 +400,8 @@ A maintenance and hardening release. The public API was simplified, the
 - `Cow<'a, str>` used for lifetime-efficient string handling in the API.
 
 <!-- Link references -->
-[Unreleased]: https://github.com/rs-videos/siwi-download/compare/v2.6.0...HEAD
+[Unreleased]: https://github.com/rs-videos/siwi-download/compare/v2.7.0...HEAD
+[2.7.0]: https://github.com/rs-videos/siwi-download/compare/v2.6.0...v2.7.0
 [2.6.0]: https://github.com/rs-videos/siwi-download/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/rs-videos/siwi-download/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/rs-videos/siwi-download/compare/v2.3.0...v2.4.0
