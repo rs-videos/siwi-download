@@ -14,5 +14,11 @@ targets = [
 ]
 github-releases = "hosted"
 
+# GitHub retired the macos-14 label for this repo (the aarch64 job was
+# cancelled before a runner was ever assigned). Pin the arm64 macOS build
+# to macos-15; x86_64 macOS keeps dist's default (macos-13).
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
+
 [installers.shell]
 install-path-hint = "~/.local/bin"
