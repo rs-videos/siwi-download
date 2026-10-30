@@ -1,4 +1,4 @@
-#![cfg(all(feature = "unstable", feature = "s3"))]
+#![cfg(feature = "s3")]
 //! Integration tests for the S3 source/sink (M3) against an in-process mock
 //! S3 endpoint. The mock accepts any `Authorization` (signature correctness
 //! is covered by the official AWS vectors in `pipeline::s3::tests`) and
@@ -219,7 +219,7 @@ async fn test_s3_source_downloads_object() -> AnyResult<()> {
   let report = Pipeline::new(source, SharedSink(shared.clone()))
     .run()
     .await?;
-  assert_eq!(report.bytes_written, payload.len() as u64);
+  assert_eq!(report.bytes_transferred, payload.len() as u64);
   assert_eq!(payload, *shared.lock().unwrap());
   Ok(())
 }
@@ -240,7 +240,7 @@ async fn test_s3_source_resumes_from_offset() -> AnyResult<()> {
     .run()
     .await?;
 
-  assert_eq!(report.bytes_written, 600);
+  assert_eq!(report.bytes_transferred, 600);
   let got = shared.lock().unwrap().clone();
   assert_eq!(&payload[400..], got.as_slice());
   Ok(())
@@ -262,7 +262,7 @@ async fn test_http_to_s3_direct_transfer() -> AnyResult<()> {
   .run()
   .await?;
 
-  assert_eq!(report.bytes_written, 30_000);
+  assert_eq!(report.bytes_transferred, 30_000);
   assert_eq!(
     s3.object("/test-bucket/uploads/direct.bin"),
     Some(body.to_vec()),

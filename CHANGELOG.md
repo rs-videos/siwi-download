@@ -12,6 +12,39 @@ and may be incomplete.
 
 _No unreleased changes yet._
 
+## [3.0.0] - 2026-10-31
+
+3.0 stabilizes the Pipeline architecture (Source → Filter → Sink) that
+shipped behind the `unstable` feature in 2.5–2.7.
+
+**No 2.x API was removed** — existing 2.x code compiles and behaves
+unchanged. The breaking surface is limited to the previously-`unstable`
+pipeline, plus the removed feature flags.
+
+### Changed (breaking, `unstable` users only)
+
+- The **`unstable` feature is gone**; the `pipeline` module (and `s3`
+  feature) is available unconditionally. Remove `features = ["unstable"]`.
+- `PipelineReport` fields renamed to their final vocabulary:
+  `bytes_written` → `bytes_transferred`, `resumed_from` → `bytes_skipped`,
+  `total` → `content_length`.
+- The `docs` feature was removed; docs.rs now builds with `gzip` + `s3`.
+
+### Added
+
+- `docs/migrate-2-to-3.md`: the 2.x → 3.0 migration guide (feature
+  changes, field renames, pipeline/S3 adoption, compatibility policy).
+- RFC decisions recorded: ADR-009 (S3 via hand-rolled SigV4, no AWS SDK),
+  ADR-010 (no `v2` compatibility module — nothing removed), ADR-011
+  (`DownloadQueue` stays on `download()`, whose 304/416 terminal semantics
+  the pipeline deliberately does not model).
+
+### Compatibility policy (3.x)
+
+- Public API is additive only; deprecations persist for at least two
+  minor releases.
+- `gzip` / `s3` stay opt-in; the default feature set does not grow.
+
 ## [2.7.0] - 2026-10-31
 
 ### Added
@@ -400,7 +433,8 @@ A maintenance and hardening release. The public API was simplified, the
 - `Cow<'a, str>` used for lifetime-efficient string handling in the API.
 
 <!-- Link references -->
-[Unreleased]: https://github.com/rs-videos/siwi-download/compare/v2.7.0...HEAD
+[Unreleased]: https://github.com/rs-videos/siwi-download/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/rs-videos/siwi-download/compare/v2.7.0...v3.0.0
 [2.7.0]: https://github.com/rs-videos/siwi-download/compare/v2.6.0...v2.7.0
 [2.6.0]: https://github.com/rs-videos/siwi-download/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/rs-videos/siwi-download/compare/v2.4.0...v2.5.0

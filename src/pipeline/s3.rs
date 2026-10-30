@@ -28,7 +28,7 @@
 //! };
 //! let source = S3Source::new(config, "data/file.bin")?;
 //! let report = Pipeline::new(source, MemorySink::default()).run().await?;
-//! println!("{} bytes", report.bytes_written);
+//! println!("{} bytes", report.bytes_transferred);
 //! # Ok(())
 //! # }
 //! ```

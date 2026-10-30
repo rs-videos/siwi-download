@@ -1,7 +1,7 @@
 # RFC: 3.0 Pipeline Architecture — Source → Filter → Sink
 
-- **Status**: M1 (v2.5.0) and M2 (v2.6.0) shipped; M3 (S3, v2.7.0)
-  shipped behind `unstable` + `s3`
+- **Status**: implemented — M1 (v2.5.0), M2 (v2.6.0), M3 (v2.7.0), and
+  M4 (v3.0.0: pipeline stabilized, migration guide, no compat shim needed)
 - **Target version**: 3.0.0
 - **Related ADRs**: 001 (no sharding), 002 (no P2P), 003 (trait-object hooks), 004 (pipeline at 3.0), 005 (sync hooks)
 - **Discuss**: open an issue tagged `roadmap-discussion` referencing this file
@@ -193,7 +193,7 @@ let report = Pipeline::new(HttpSource::new(url), FileSink::create(path).await?)
 | M1 | `Source`/`Sink` traits + `HttpSource`/`FileSource`/`FileSink` + runner; `download()`/`stream()` refactored onto the shared engine; benchmarks green | ✅ done (v2.5.0, `unstable`) |
 | M2 | `Filter` trait + Gunzip/Checksum/Tee migration; `stream()` refactored onto it — ✅ done (v2.6.0): `Filter`, `ChecksumFilter`, `GunzipFilter`, `TeeFilter`, `Pipeline::filter`, and `FilteredSink` (stream() adopts filters via the adapter, keeping the core API free of pipeline types) | 3 wks |
 | M3 | `s3` feature: `S3Source`/`S3Sink`; HTTP→S3 e2e against an in-process mock S3 (minio not required) — ✅ done (v2.7.0), see ADR-009 | 4 wks |
-| M4 | compat module `v2`, migration guide, docs, benchmark report | 2 wks |
+| M4 | compat module `v2`, migration guide, docs, benchmark report — ✅ done (v3.0.0): **no compat module needed** (nothing removed, ADR-010); migration guide shipped; benchmark harness deferred to 3.1 | 2 wks |
 | — | buffer + release hardening | 2 wks |
 
 Total ≈ 16 person-weeks, matching the ROADMAP estimate.
@@ -207,15 +207,12 @@ Total ≈ 16 person-weeks, matching the ROADMAP estimate.
 | Event-stream semantic drift during refactor | 2.2/2.3 integration tests (mock servers) must pass unchanged against the pipeline engine — they are the spec |
 | Over-abstracted traits | No `Source`/`Sink` method beyond what M1/M3 consumers actually use; YAGNI review before M2 |
 
-## 8. Open Questions
+## 8. Resolved Questions
 
-1. Should `FileSource` support sparse/`seek`-style random access in M1, or
-   is sequential-only acceptable? (Lean: sequential-only.)
-2. `PipelineReport` field naming — keep 2.x `file_size`/`range_from`
-   vocabulary or rename to `bytes_total`/`bytes_skipped`? (Lean: rename in
-   3.x since the compat layer absorbs the old names.)
-3. Does the queue (`DownloadQueue`) move onto `Pipeline` in 3.0 or stay on
-   the compat shim? (Lean: move in 3.0; it consumes only the runner.)
+1. `FileSource` is sequential-only — sufficient for all current uses.
+2. `PipelineReport` fields are `bytes_transferred` / `bytes_skipped` /
+   `content_length` (3.0), chosen for precision over the draft names.
+3. `DownloadQueue` stays on `Download::download` (ADR-011).
 
 ## 9. Decision Log Update
 
@@ -226,3 +223,6 @@ On approval, add:
 | 006 | 3.0 pipeline uses native RPITIT traits; `Box<dyn>` only at construction sites |
 | 007 | `s3` support is feature-gated; AWS SDK never a default dependency |
 | 008 | Events/hooks semantic compatibility is enforced by treating 2.2+ integration tests as the executable spec |
+| 009 | S3 implemented with hand-rolled SigV4 over plain HTTP instead of `aws-sdk-s3` (dependency weight, MSRV); verified against two official AWS test vectors | 2026-10 |
+| 010 | No `v2` compatibility module in 3.0: no 2.x API was removed, so 2.x code compiles unchanged; the only breaking surface is the previously-`unstable` pipeline (feature removed, `PipelineReport` fields renamed) | 2026-10 |
+| 011 | `DownloadQueue` stays on `Download::download`, not `Pipeline`: queue semantics depend on download-level terminal states (304/416/Exists) that the pipeline deliberately does not model | 2026-10 |

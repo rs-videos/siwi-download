@@ -15,7 +15,8 @@
 
 | 文档 | 用途 |
 |---|---|
-| [design/30-pipeline.md](./design/30-pipeline.md) | 3.0 Pipeline 架构设计 RFC（Source/Filter/Sink、迁移路径、里程碑、开放问题） |
+| [migrate-2-to-3.md](./migrate-2-to-3.md) | 2.x → 3.0 迁移指南（feature 变更、PipelineReport 字段改名、Pipeline/S3 用法） |
+| [design/30-pipeline.md](./design/30-pipeline.md) | 3.0 Pipeline 架构设计 RFC（Source/Filter/Sink、迁移路径、里程碑、ADR） |
 | [ROADMAP.md](./ROADMAP.md) | 2.x → 3.0 迭代路线图（每个 minor 的主题、API 草案、验收标准、工作量估算） |
 | [../CHANGELOG.md](../CHANGELOG.md) | 已发布的版本变更记录 |
 | [../Release.md](../Release.md) | 发布流程手册 |

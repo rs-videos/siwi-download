@@ -12,21 +12,18 @@ name = "siwi-download"
 readme = "README.md"
 repository = "https://github.com/rs-videos/siwi-download.git"
 rust-version = "1.85"
-version = "2.7.0"
+version = "3.0.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [package.metadata.docs.rs]
-features = ["docs"]
-rustdoc-args = ["--cfg", "feature=\"docs\""]
+features = ["gzip", "s3"]
 
 [features]
 default = []
-# gzip decompression for GunzipSink (streaming "download-and-extract").
+# gzip decompression for GunzipSink and GunzipFilter.
 gzip = ["dep:flate2"]
-# S3 sources/sinks over plain HTTP + SigV4 (pipeline; requires `unstable`).
-s3 = ["dep:hmac", "unstable"]
-docs = ["unstable"]
-unstable = []
+# S3 sources/sinks over plain HTTP + SigV4 (no AWS SDK).
+s3 = ["dep:hmac"]
 
 [dependencies]
 anyhow = "1"

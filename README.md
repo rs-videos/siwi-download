@@ -235,6 +235,31 @@ Failed dependencies cascade as *skipped* (never silently ignored); the
 command exits `10` when anything failed. Re-running an interrupted batch
 resumes unfinished files via breakpoint continuation.
 
+## Pipeline (3.0)
+
+Compose a source with a sink (and optional filters) over the same transfer
+engine as `Download::download` — identical hooks, rate limiting,
+cancellation, and progress semantics:
+
+```rust
+use siwi_download::download::sink::MemorySink;
+use siwi_download::pipeline::{HttpSource, Pipeline};
+
+let report = Pipeline::new(
+    HttpSource::new("https://example.com/file.zip", Default::default())?,
+    MemorySink::default(),
+)
+.run()
+.await?;
+println!("{} bytes", report.bytes_transferred);
+```
+
+Built-in pieces: `HttpSource`/`FileSource`, `FileSink`/`MemorySink`/
+`HashSink`/`TeeSink`/`StdoutSink`, `ChecksumFilter`/`TeeFilter`, plus
+gzip (`gzip` feature) and S3 (`s3` feature, SigV4 over plain HTTP — no AWS
+SDK). Upgrading from 2.x? See [docs/migrate-2-to-3.md](docs/migrate-2-to-3.md)
+— 2.x code compiles unchanged.
+
 ## Library Usage
 
 > cargo run --example download

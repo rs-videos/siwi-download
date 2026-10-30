@@ -1,4 +1,3 @@
-#![cfg(feature = "unstable")]
 //! Integration tests for the 3.0 Pipeline (M1, `unstable` feature).
 
 use siwi_download::download::events::{DownloadHook, RecordingHook};
@@ -49,9 +48,9 @@ async fn test_pipeline_http_to_memory() -> AnyResult<()> {
     .run()
     .await?;
 
-  assert_eq!(report.bytes_written, 40_000);
-  assert_eq!(report.resumed_from, 0);
-  assert_eq!(report.total, Some(40_000));
+  assert_eq!(report.bytes_transferred, 40_000);
+  assert_eq!(report.bytes_skipped, 0);
+  assert_eq!(report.content_length, Some(40_000));
   assert_eq!(report.etag.as_deref(), Some("\"abc123\""));
   assert!(!report.cancelled);
 
@@ -77,8 +76,8 @@ async fn test_pipeline_file_source() -> AnyResult<()> {
     .run()
     .await?;
 
-  assert_eq!(report.bytes_written, payload.len() as u64);
-  assert_eq!(report.total, Some(payload.len() as u64));
+  assert_eq!(report.bytes_transferred, payload.len() as u64);
+  assert_eq!(report.content_length, Some(payload.len() as u64));
   assert_eq!(report.status, 0);
   assert!(!report.cancelled);
   Ok(())
@@ -106,7 +105,10 @@ async fn test_pipeline_honors_cancel() -> AnyResult<()> {
     .await?;
 
   assert!(report.cancelled);
-  assert_eq!(report.bytes_written, 0, "pre-cancelled run writes nothing");
+  assert_eq!(
+    report.bytes_transferred, 0,
+    "pre-cancelled run writes nothing"
+  );
   assert!(
     recorder
       .events()
@@ -134,9 +136,9 @@ async fn test_pipeline_resume_from_offset() -> AnyResult<()> {
     .run()
     .await?;
 
-  assert_eq!(report.resumed_from, 400);
-  assert_eq!(report.bytes_written, 600);
-  assert_eq!(report.total, Some(1000));
+  assert_eq!(report.bytes_skipped, 400);
+  assert_eq!(report.bytes_transferred, 600);
+  assert_eq!(report.content_length, Some(1000));
   Ok(())
 }
 
@@ -186,6 +188,7 @@ async fn test_pipeline_metadata_reports_etag_and_length() -> AnyResult<()> {
 // M2: filters
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "gzip")]
 #[tokio::test]
 async fn test_pipeline_gunzip_filter_decodes_to_sink() -> AnyResult<()> {
   use siwi_download::pipeline::{Filter, GunzipFilter};
@@ -217,7 +220,7 @@ async fn test_pipeline_gunzip_filter_decodes_to_sink() -> AnyResult<()> {
     .await?;
 
   assert_eq!(
-    report.bytes_written,
+    report.bytes_transferred,
     gz.len() as u64,
     "compressed bytes read"
   );
@@ -225,6 +228,7 @@ async fn test_pipeline_gunzip_filter_decodes_to_sink() -> AnyResult<()> {
   Ok(())
 }
 
+#[cfg(feature = "gzip")]
 #[tokio::test]
 async fn test_pipeline_checksum_filter_verifies_plain_payload() -> AnyResult<()> {
   use sha2::{Digest as _, Sha256};
@@ -250,7 +254,7 @@ async fn test_pipeline_checksum_filter_verifies_plain_payload() -> AnyResult<()>
     )) as Box<dyn Filter>)
     .run()
     .await?;
-  assert_eq!(report.bytes_written, gz.len() as u64);
+  assert_eq!(report.bytes_transferred, gz.len() as u64);
   Ok(())
 }
 
@@ -274,6 +278,7 @@ async fn test_pipeline_checksum_filter_mismatch_fails_before_finalize() -> AnyRe
   Ok(())
 }
 
+#[cfg(feature = "gzip")]
 #[tokio::test]
 async fn test_pipeline_tee_keeps_compressed_side_copy() -> AnyResult<()> {
   use sha2::{Digest as _, Sha256};
@@ -313,7 +318,7 @@ async fn test_pipeline_tee_keeps_compressed_side_copy() -> AnyResult<()> {
     .run()
     .await?;
 
-  assert_eq!(report.bytes_written, gz.len() as u64);
+  assert_eq!(report.bytes_transferred, gz.len() as u64);
   let captured = side_bytes.lock().unwrap().clone();
   assert_eq!(gz, captured, "tee copies the compressed bytes it receives");
   assert_eq!(

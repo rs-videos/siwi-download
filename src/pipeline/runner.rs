@@ -13,7 +13,7 @@
 //!     .options(PipelineOptions::default())
 //!     .run()
 //!     .await?;
-//! println!("{} bytes", report.bytes_written);
+//! println!("{} bytes", report.bytes_transferred);
 //! # Ok(())
 //! # }
 //! ```
@@ -63,11 +63,11 @@ pub struct PipelineReport {
   /// Probe status (`0` for non-HTTP sources).
   pub status: u16,
   /// Bytes transferred by this run.
-  pub bytes_written: u64,
-  /// Byte position the transfer resumed from.
-  pub resumed_from: u64,
-  /// Total payload size when the source reported one.
-  pub total: Option<u64>,
+  pub bytes_transferred: u64,
+  /// Bytes skipped because the transfer resumed mid-stream.
+  pub bytes_skipped: u64,
+  /// Full payload size when the source reported one.
+  pub content_length: Option<u64>,
   /// Source entity tag, when available.
   pub etag: Option<String>,
   /// Source last-modified timestamp, when available.
@@ -166,9 +166,9 @@ where
     let report = PipelineReport {
       location: metadata.location,
       status: metadata.status,
-      bytes_written: outcome.written,
-      resumed_from: self.options.resume_from,
-      total,
+      bytes_transferred: outcome.written,
+      bytes_skipped: self.options.resume_from,
+      content_length: total,
       etag: metadata.etag,
       last_modified: metadata.last_modified,
       cancelled: outcome.cancelled,
@@ -190,8 +190,8 @@ where
         String::new(),
       );
       legacy
-        .set_file_size(report.bytes_written)
-        .set_range_from(report.resumed_from)
+        .set_file_size(report.bytes_transferred)
+        .set_range_from(report.bytes_skipped)
         .set_download_status(DownloadStatus::Complete);
       crate::download::dispatch_hooks(
         &self.options.hooks,
@@ -298,11 +298,12 @@ impl<K: crate::download::sink::StreamSink> FilterChain<'_, K> {
 ///
 /// ```rust,no_run
 /// use siwi_download::download::sink::MemorySink;
-/// use siwi_download::pipeline::{FilteredSink, GunzipFilter};
+/// use siwi_download::download::Algorithm;
+/// use siwi_download::pipeline::{ChecksumFilter, FilteredSink};
 ///
 /// # async fn example() -> siwi_download::error::AnyResult<()> {
 /// let mut sink = FilteredSink::new(MemorySink::default())
-///     .push(Box::new(GunzipFilter::new()));
+///     .push(Box::new(ChecksumFilter::new(Algorithm::Sha256, "00".repeat(32))) as Box<dyn siwi_download::pipeline::Filter>);
 /// // download.stream(url, options, &mut sink).await?;
 /// # Ok(())
 /// # }

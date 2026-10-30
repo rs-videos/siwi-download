@@ -1,13 +1,10 @@
-//! **Unstable**: 3.0 Pipeline architecture (see `docs/design/30-pipeline.md`).
+//! Pipeline architecture (stable since 3.0; see
+//! `docs/design/30-pipeline.md`).
 //!
 //! A pipeline composes a [`Source`] (where bytes come from) with a [`Sink`]
 //! (where they go), sharing the same transfer engine as
 //! [`Download::download`](crate::download::Download::download): identical
 //! lifecycle events, rate limiting, cancellation, and progress semantics.
-//!
-//! This module is gated behind the **`unstable`** feature while the 3.0 API
-//! settles; it is additive over 2.x and may change in minor releases until
-//! 3.0.0.
 //!
 //! # Example
 //!
@@ -18,7 +15,7 @@
 //! # async fn example() -> siwi_download::error::AnyResult<()> {
 //! let source = HttpSource::new("https://example.com/file.zip", Default::default())?;
 //! let report = Pipeline::new(source, MemorySink::default()).run().await?;
-//! println!("{} bytes", report.bytes_written);
+//! println!("{} bytes", report.bytes_transferred);
 //! # Ok(())
 //! # }
 //! ```
