@@ -10,6 +10,10 @@ and may be incomplete.
 
 ## [Unreleased]
 
+_No unreleased changes yet._
+
+## [2.6.0] - 2026-10-31
+
 ### Added
 
 Roadmap 3.0 M2 — filters (see `docs/design/30-pipeline.md`):
@@ -31,9 +35,16 @@ Roadmap 3.0 M2 — filters (see `docs/design/30-pipeline.md`):
   the state machine) — existing sink behavior and tests unchanged.
 - `Hasher` in `download::sink` gains `new/update/hex_digest` helpers,
   reused by `HashSink` and `ChecksumFilter`.
+- `TeeFilter`: copies every byte it receives to a side sink (finalized at
+  flush) and passes it through — e.g. keep the raw gzip while the main
+  chain decompresses.
+- `FilteredSink`: a `StreamSink` wrapper that runs bytes through a filter
+  chain, so `Download::stream` (and any sink consumer) can use filters
+  without the pipeline types entering the core API.
+- `FilterCore` extracted: the ping-pong buffering and flush cascading are
+  shared by the pipeline runner and `FilteredSink`.
 
-Deferred to a later M2 slice: `TeeFilter` (branching streams), S3
-sources/sinks (M3).
+Deferred: S3 sources/sinks (M3), and the `v2` compat module (M4).
 
 ## [2.5.0] - 2026-09-17
 
@@ -367,7 +378,8 @@ A maintenance and hardening release. The public API was simplified, the
 - `Cow<'a, str>` used for lifetime-efficient string handling in the API.
 
 <!-- Link references -->
-[Unreleased]: https://github.com/rs-videos/siwi-download/compare/v2.5.0...HEAD
+[Unreleased]: https://github.com/rs-videos/siwi-download/compare/v2.6.0...HEAD
+[2.6.0]: https://github.com/rs-videos/siwi-download/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/rs-videos/siwi-download/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/rs-videos/siwi-download/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/rs-videos/siwi-download/compare/v2.2.0...v2.3.0

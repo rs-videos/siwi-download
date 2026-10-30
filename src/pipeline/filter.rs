@@ -94,6 +94,55 @@ impl Filter for ChecksumFilter {
   }
 }
 
+/// Copies every byte it sees to a side sink, then passes them through.
+///
+/// Useful for keeping the raw (e.g. still-compressed) payload while the
+/// main chain transforms it:
+///
+/// ```text
+/// source -> TeeFilter(raw copy) -> GunzipFilter -> sink(plain)
+/// ```
+///
+/// The side sink is finalized when the filter flushes, before the main
+/// sink finalizes.
+pub struct TeeFilter<S: crate::download::sink::StreamSink> {
+  side: S,
+}
+
+impl<S: crate::download::sink::StreamSink> TeeFilter<S> {
+  /// Creates a tee writing a copy to `side`.
+  pub fn new(side: S) -> Self {
+    Self { side }
+  }
+
+  /// Access to the side sink (e.g. a [`HashSink`](crate::download::sink::HashSink)
+  /// to read a digest from).
+  pub fn side(&self) -> &S {
+    &self.side
+  }
+}
+
+impl<S: crate::download::sink::StreamSink> Filter for TeeFilter<S> {
+  fn transform<'a>(
+    &'a mut self,
+    chunk: &'a [u8],
+    out: &'a mut Vec<u8>,
+  ) -> BoxFuture<'a, AnyResult<()>> {
+    Box::pin(async move {
+      self.side.write_chunk(chunk).await?;
+      out.extend_from_slice(chunk);
+      Ok(())
+    })
+  }
+
+  fn flush<'a>(&'a mut self, _out: &'a mut Vec<u8>) -> BoxFuture<'a, AnyResult<()>> {
+    Box::pin(async move {
+      self.side.finalize().await?;
+      Ok(())
+    })
+  }
+}
+
 /// Decompresses a gzip stream in-flight (requires the `gzip` feature).
 ///
 /// Multi-member streams are supported; each member's CRC32/ISIZE trailer is
@@ -179,6 +228,37 @@ mod tests {
     f.transform(b"hello world", &mut out).await?;
     f.flush(&mut Vec::new()).await?;
     f.flush(&mut Vec::new()).await?; // second flush: no-op
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn test_tee_filter_copies_input_to_side_sink() -> AnyResult<()> {
+    use crate::download::sink::MemorySink;
+    use std::sync::{Arc, Mutex};
+
+    struct SharedSink(Arc<Mutex<Vec<u8>>>);
+    impl crate::download::sink::StreamSink for SharedSink {
+      async fn write_chunk(&mut self, chunk: &[u8]) -> AnyResult<()> {
+        self.0.lock().unwrap().extend_from_slice(chunk);
+        Ok(())
+      }
+      async fn finalize(&mut self) -> AnyResult<()> {
+        Ok(())
+      }
+    }
+
+    let side = Arc::new(Mutex::new(Vec::new()));
+    let mut tee = TeeFilter::new(SharedSink(side.clone()));
+    let out = run_filter(&mut tee, &[b"abc", b"def"]).await?;
+
+    // Main chain got the bytes; the side sink got a copy of the *input*.
+    assert_eq!(b"abcdef".as_slice(), out.as_slice());
+    assert_eq!(
+      b"abcdef".as_slice(),
+      side.lock().unwrap().as_slice(),
+      "side sink copy"
+    );
+    let _ = MemorySink::default();
     Ok(())
   }
 

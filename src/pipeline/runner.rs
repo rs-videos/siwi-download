@@ -156,10 +156,8 @@ where
       progress_bar: None,
     };
     let mut chain = FilterChain {
+      core: FilterCore::new(std::mem::take(&mut self.filters)),
       sink: &mut self.sink,
-      filters: &mut self.filters,
-      buf_in: Vec::new(),
-      buf_out: Vec::new(),
     };
     let outcome = engine::pump(&mut self.source, &mut chain, spec).await?;
     chain.flush().await?;
@@ -205,43 +203,48 @@ where
   }
 }
 
-/// A [`ChunkWriter`] that pipes chunks through the filter chain before
-/// writing to the sink.
+/// Owned filter pipeline: buffers plus the filter stages.
 ///
-/// Two buffers ping-pong between filters; `flush` cascades each filter's
-/// tail through the remaining filters and finally into the sink. With no
-/// filters registered, chunks go straight to the sink.
-struct FilterChain<'a, K: crate::download::sink::StreamSink> {
-  sink: &'a mut K,
-  filters: &'a mut [Box<dyn Filter>],
-  /// Filter pipeline input buffer (swapped with `buf_out` after each stage).
+/// Shared by [`FilterChain`] (borrowed sink, used by the pipeline runner)
+/// and [`FilteredSink`] (owned sink, lets `Download::stream` users attach
+/// filters without the pipeline types leaking into the core API).
+struct FilterCore {
+  filters: Vec<Box<dyn Filter>>,
+  /// Pipeline input buffer (swapped with `buf_out` after each stage).
   buf_in: Vec<u8>,
-  /// Filter pipeline output buffer.
+  /// Pipeline output buffer.
   buf_out: Vec<u8>,
 }
 
-impl<K: crate::download::sink::StreamSink> ChunkWriter for FilterChain<'_, K> {
-  async fn write_chunk(&mut self, chunk: &[u8]) -> AnyResult<()> {
+impl FilterCore {
+  fn new(filters: Vec<Box<dyn Filter>>) -> Self {
+    Self {
+      filters,
+      buf_in: Vec::new(),
+      buf_out: Vec::new(),
+    }
+  }
+
+  /// Runs `chunk` through every filter and writes the result to `sink`.
+  async fn process<W: ChunkWriter>(&mut self, chunk: &[u8], sink: &mut W) -> AnyResult<()> {
     if self.filters.is_empty() {
-      return self.sink.write_chunk(chunk).await;
+      return sink.write_chunk(chunk).await;
     }
     self.buf_in.clear();
     self.buf_in.extend_from_slice(chunk);
-    for filter in self.filters.iter_mut() {
+    for filter in &mut self.filters {
       self.buf_out.clear();
       filter.transform(&self.buf_in, &mut self.buf_out).await?;
       std::mem::swap(&mut self.buf_in, &mut self.buf_out);
     }
     if !self.buf_in.is_empty() {
-      self.sink.write_chunk(&self.buf_in).await?;
+      sink.write_chunk(&self.buf_in).await?;
     }
     Ok(())
   }
-}
 
-impl<K: crate::download::sink::StreamSink> FilterChain<'_, K> {
   /// Flushes every filter, cascading each tail through downstream stages.
-  async fn flush(&mut self) -> AnyResult<()> {
+  async fn flush<W: ChunkWriter>(&mut self, sink: &mut W) -> AnyResult<()> {
     let n = self.filters.len();
     for i in 0..n {
       self.buf_out.clear();
@@ -262,9 +265,82 @@ impl<K: crate::download::sink::StreamSink> FilterChain<'_, K> {
         std::mem::swap(&mut self.buf_in, &mut self.buf_out);
       }
       if !self.buf_in.is_empty() {
-        self.sink.write_chunk(&self.buf_in).await?;
+        sink.write_chunk(&self.buf_in).await?;
       }
     }
     Ok(())
+  }
+}
+
+/// Adapts the filter core to the engine's writer contract for the runner.
+struct FilterChain<'a, K: crate::download::sink::StreamSink> {
+  core: FilterCore,
+  sink: &'a mut K,
+}
+
+impl<K: crate::download::sink::StreamSink> ChunkWriter for FilterChain<'_, K> {
+  async fn write_chunk(&mut self, chunk: &[u8]) -> AnyResult<()> {
+    self.core.process(chunk, self.sink).await
+  }
+}
+
+impl<K: crate::download::sink::StreamSink> FilterChain<'_, K> {
+  async fn flush(&mut self) -> AnyResult<()> {
+    self.core.flush(self.sink).await
+  }
+}
+
+/// A [`Sink`](crate::download::sink::StreamSink) wrapper that runs incoming
+/// bytes through a filter chain before forwarding them.
+///
+/// This lets `Download::stream` (and any other sink consumer) use filters
+/// without touching the core API:
+///
+/// ```rust,no_run
+/// use siwi_download::download::sink::MemorySink;
+/// use siwi_download::pipeline::{FilteredSink, GunzipFilter};
+///
+/// # async fn example() -> siwi_download::error::AnyResult<()> {
+/// let mut sink = FilteredSink::new(MemorySink::default())
+///     .push(Box::new(GunzipFilter::new()));
+/// // download.stream(url, options, &mut sink).await?;
+/// # Ok(())
+/// # }
+/// ```
+pub struct FilteredSink<S: crate::download::sink::StreamSink> {
+  core: FilterCore,
+  inner: S,
+}
+
+impl<S: crate::download::sink::StreamSink> FilteredSink<S> {
+  /// Wraps `inner` with an empty filter chain.
+  pub fn new(inner: S) -> Self {
+    Self {
+      core: FilterCore::new(Vec::new()),
+      inner,
+    }
+  }
+
+  /// Appends a filter stage (runs in registration order).
+  #[must_use]
+  pub fn push(mut self, filter: Box<dyn Filter>) -> Self {
+    self.core.filters.push(filter);
+    self
+  }
+
+  /// Access to the wrapped sink.
+  pub fn inner(&self) -> &S {
+    &self.inner
+  }
+}
+
+impl<S: crate::download::sink::StreamSink> crate::download::sink::StreamSink for FilteredSink<S> {
+  async fn write_chunk(&mut self, chunk: &[u8]) -> AnyResult<()> {
+    self.core.process(chunk, &mut self.inner).await
+  }
+
+  async fn finalize(&mut self) -> AnyResult<()> {
+    self.core.flush(&mut self.inner).await?;
+    self.inner.finalize().await
   }
 }

@@ -152,6 +152,11 @@ stays the cancellation mechanism (checked between chunks/filters).
   rename to its own trait happens in M4 when the compat module lands.
 - `SourceMetadata.content_length` is the full payload size; the probe runs
   without a Range header, so the runner uses it as `total` directly.
+- M2 as-built: filters are object-safe via boxed futures (heterogeneous
+  `Vec<Box<dyn Filter>>`), unlike `Source`/`Sink` which stay RPITIT and
+  generic. `FilterCore` shares the ping-pong buffering and flush cascading
+  between the runner and `FilteredSink`, so `Download::stream` gains filter
+  support through a sink adapter rather than new core-API surface.
 
 ## 5. Migration Path
 
@@ -178,7 +183,7 @@ let report = Pipeline::new(HttpSource::new(url), FileSink::create(path).await?)
 | # | Scope | Est. |
 |---|---|---|
 | M1 | `Source`/`Sink` traits + `HttpSource`/`FileSource`/`FileSink` + runner; `download()`/`stream()` refactored onto the shared engine; benchmarks green | ✅ done (v2.5.0, `unstable`) |
-| M2 | `Filter` trait + Gunzip/Checksum/Tee migration; `stream()` refactored onto it — **slice 1 done** (`Filter`, `ChecksumFilter`, `GunzipFilter`, `Pipeline::filter`); `TeeFilter` deferred | 3 wks |
+| M2 | `Filter` trait + Gunzip/Checksum/Tee migration; `stream()` refactored onto it — ✅ done (v2.6.0): `Filter`, `ChecksumFilter`, `GunzipFilter`, `TeeFilter`, `Pipeline::filter`, and `FilteredSink` (stream() adopts filters via the adapter, keeping the core API free of pipeline types) | 3 wks |
 | M3 | `s3` feature: S3Source/S3Sink; HTTP→S3 e2e test with minio in CI | 4 wks |
 | M4 | compat module `v2`, migration guide, docs, benchmark report | 2 wks |
 | — | buffer + release hardening | 2 wks |

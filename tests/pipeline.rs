@@ -273,3 +273,103 @@ async fn test_pipeline_checksum_filter_mismatch_fails_before_finalize() -> AnyRe
   assert!(err.to_string().contains("checksum mismatch"), "{err}");
   Ok(())
 }
+
+#[tokio::test]
+async fn test_pipeline_tee_keeps_compressed_side_copy() -> AnyResult<()> {
+  use sha2::{Digest as _, Sha256};
+  use siwi_download::pipeline::{Filter, GunzipFilter, TeeFilter};
+  use std::io::Write as _;
+
+  /// Side sink capturing bytes with a hash, inspectable after the run.
+  struct SideSink {
+    bytes: Arc<std::sync::Mutex<Vec<u8>>>,
+  }
+  impl siwi_download::download::sink::StreamSink for SideSink {
+    async fn write_chunk(&mut self, chunk: &[u8]) -> AnyResult<()> {
+      self.bytes.lock().unwrap().extend_from_slice(chunk);
+      Ok(())
+    }
+    async fn finalize(&mut self) -> AnyResult<()> {
+      Ok(())
+    }
+  }
+
+  let dir = tempdir()?;
+  let plain = b"raw payload kept on the side";
+  let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+  enc.write_all(plain)?;
+  let gz = enc.finish()?;
+  let path = dir.path().join("tee.gz");
+  std::fs::write(&path, &gz)?;
+
+  let side_bytes = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let side = SideSink {
+    bytes: side_bytes.clone(),
+  };
+  // Tee BEFORE gunzip: the side sees the compressed bytes.
+  let report = Pipeline::new(FileSource::new(&path), MemorySink::default())
+    .filter(Box::new(TeeFilter::new(side)) as Box<dyn Filter>)
+    .filter(Box::new(GunzipFilter::new()) as Box<dyn Filter>)
+    .run()
+    .await?;
+
+  assert_eq!(report.bytes_written, gz.len() as u64);
+  let captured = side_bytes.lock().unwrap().clone();
+  assert_eq!(gz, captured, "tee copies the compressed bytes it receives");
+  assert_eq!(
+    hex::encode(Sha256::digest(&captured)),
+    hex::encode(Sha256::digest(&gz))
+  );
+  Ok(())
+}
+
+#[tokio::test]
+async fn test_stream_works_with_filtered_sink() -> AnyResult<()> {
+  use sha2::{Digest as _, Sha256};
+  use siwi_download::download::Download;
+  use siwi_download::download::sink::StreamSink;
+  use siwi_download::pipeline::{ChecksumFilter, Filter, FilteredSink};
+
+  let body: &'static [u8] = Box::leak(b"stream through filters".to_vec().into_boxed_slice());
+  let url = spawn_mock(body);
+
+  let dir = tempdir()?;
+  let download = Download::new(dir.path().to_str().unwrap());
+  let plain = b"stream through filters";
+  let expected = hex::encode(Sha256::digest(plain));
+
+  // FilteredSink lets the existing stream() API use filters: the sink
+  // receives plain bytes, and the checksum mismatch path would abort.
+  let mut sink = FilteredSink::new(MemorySink::default()).push(Box::new(ChecksumFilter::new(
+    siwi_download::download::Algorithm::Sha256,
+    expected,
+  )) as Box<dyn Filter>);
+  let report = download
+    .stream(
+      &url,
+      siwi_download::download::DownloadOptions::default(),
+      &mut sink,
+    )
+    .await?;
+  assert_eq!(report.file_size, Some(plain.len() as u64));
+
+  let mut bad = FilteredSink::new(MemorySink::default()).push(Box::new(ChecksumFilter::new(
+    siwi_download::download::Algorithm::Sha256,
+    "0".repeat(64),
+  )) as Box<dyn Filter>);
+  let err = download
+    .stream(
+      &url,
+      siwi_download::download::DownloadOptions::default(),
+      &mut bad,
+    )
+    .await
+    .expect_err("mismatch must abort stream()");
+  assert!(err.to_string().contains("checksum mismatch"), "{err}");
+
+  // The plain StreamSink trait is still implemented by the adapter.
+  fn assert_stream_sink<T: StreamSink>(_: &T) {}
+  assert_stream_sink(&sink);
+  let _ = sink.inner();
+  Ok(())
+}
